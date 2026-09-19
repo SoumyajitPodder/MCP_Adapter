@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support Assistant · Pipeline Sandbox</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-title">Support assistant</span>
+      <span class="topbar-subtitle">MCP pipeline sandbox &middot; telecom, v1</span>
+    </div>
+    <div class="endpoint-status {{ 'up' if endpoint_up else 'down' }}">
+      <span class="status-dot"></span>
+      {{ 'legacy endpoint reachable' if endpoint_up else 'legacy endpoint unreachable — start endpoint/mock_att_api.py' }}
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- LEFT: agent conversation -->
+    <section class="panel chat-panel">
+      <div class="panel-heading">Conversation</div>
+
+      <div class="chat-log" id="chat-log">
+        <div class="msg msg-agent">
+          <div class="msg-bubble">
+            Hi, I can check device stock, look up a service ticket, or track an order. Try one of the examples below, or describe what you need.
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-prompts">
+        <button class="chip" data-prompt="Do we have SKU-GS24U in stock?">Stock check: SKU-GS24U</button>
+        <button class="chip" data-prompt="What's the status on TICKET-5001?">Service ticket: TICKET-5001</button>
+        <button class="chip" data-prompt="Can you track ORDER-8002?">Order status: ORDER-8002</button>
+        <button class="chip" data-prompt="Can you track ORDER-9999?">Unknown order (error path)</button>
+      </div>
+
+      <form id="chat-form" class="chat-input-row">
+        <input
+          id="chat-input"
+          type="text"
+          autocomplete="off"
+          placeholder="e.g. What's the status on TICKET-5001?"
+        >
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <!-- RIGHT: system internals -->
+    <aside class="panel internals-panel">
+      <div class="panel-heading">System internals</div>
+      <div class="panel-subheading">Live pipeline trace for the last request</div>
+
+      <div class="trace-track" id="trace-track">
+        <div class="trace-empty">Send a message to see the request travel through the pipeline.</div>
+      </div>
+
+      <div class="capabilities-section">
+        <div class="panel-subheading">MCP layer capabilities</div>
+        <ul class="capabilities-list" id="capabilities-list">
+          <!-- populated by app.js -->
+        </ul>
+      </div>
+    </aside>
+
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
