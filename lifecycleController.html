@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lifecycle controller — Phase 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#F4F6F8; --ink:#14212E; --ink-2:#4A5A6A; --ink-3:#7B8A98;
+  --line:#D5DBE1; --accent:#1F4FD8; --accent-ink:#FFFFFF;
+  --pass:#0E8A6B; --pass-bg:#DDF3EB; --review:#A86A00; --review-bg:#FCEFD2; --fail:#C23B22; --fail-bg:#FBE1DB;
+  --unknown:#6B5B95; --unknown-bg:#E9E4F4; --idle:#8896A3; --idle-bg:#E6EAEE;
+  --font:"Instrument Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F171F; --surface:#17222D; --surface-2:#1D2B38; --ink:#E6EDF3; --ink-2:#A3B3C1; --ink-3:#7C8D9C;
+    --line:#2C3B4A; --accent:#6E96FF; --accent-ink:#0F171F;
+    --pass:#3CC9A0; --pass-bg:#12352D; --review:#E5A93A; --review-bg:#3A2E12; --fail:#F07B63; --fail-bg:#3D1E19;
+    --unknown:#A594D6; --unknown-bg:#2A2340; --idle:#8496A6; --idle-bg:#243240;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F171F; --surface:#17222D; --surface-2:#1D2B38; --ink:#E6EDF3; --ink-2:#A3B3C1; --ink-3:#7C8D9C;
+  --line:#2C3B4A; --accent:#6E96FF; --accent-ink:#0F171F;
+  --pass:#3CC9A0; --pass-bg:#12352D; --review:#E5A93A; --review-bg:#3A2E12; --fail:#F07B63; --fail-bg:#3D1E19;
+  --unknown:#A594D6; --unknown-bg:#2A2340; --idle:#8496A6; --idle-bg:#243240;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3,h4,p{margin:0}
+.wrap{max-width:1480px;margin:0 auto;padding:16px}
+
+/* top bar */
+.top{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;padding:4px 0 14px}
+.brand h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.brand p{color:var(--ink-2);margin-top:2px}
+.ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.clock{padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-weight:600}
+.clock span{color:var(--ink-3);font-weight:500;margin-right:6px}
+.btn{border:1px solid var(--line);background:var(--surface);padding:7px 12px;border-radius:8px;font-weight:600}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.sm{padding:4px 9px;font-size:12.5px;border-radius:6px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.stat b{display:block;font-size:22px;font-weight:700;line-height:1.1}
+.stat small{color:var(--ink-2)}
+
+/* grid */
+.grid{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;gap:14px;align-items:start}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card > h2{font-size:15px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.card > h2 small{font-weight:500;color:var(--ink-2);font-size:12.5px}
+.muted{color:var(--ink-2)}
+.tiny{font-size:12px;color:var(--ink-2)}
+
+/* pills */
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.pill.PASS,.pill.COMPATIBLE,.pill.pass,.pill.ACTIVE,.pill.approved{background:var(--pass-bg);color:var(--pass)}
+.pill.REVIEW,.pill.REVIEW_REQUIRED,.pill.warn,.pill.DEPRECATED,.pill.open{background:var(--review-bg);color:var(--review)}
+.pill.FAIL,.pill.BREAKING,.pill.fail,.pill.rejected{background:var(--fail-bg);color:var(--fail)}
+.pill.UNKNOWN{background:var(--unknown-bg);color:var(--unknown)}
+.pill.SUNSET,.pill.PENDING,.pill.skip,.pill.superseded,.pill.SYSTEM{background:var(--idle-bg);color:var(--idle)}
+.pill.kind{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line)}
+
+/* bindings */
+.bnd{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.bnd:last-child{margin-bottom:0}
+.bnd.sel{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.bnd .r1{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.bnd .nm{font-weight:700}
+.bnd .r2{margin-top:3px;color:var(--ink-2);font-size:12.5px}
+
+/* simulator */
+.sim-grid{display:grid;grid-template-columns:1fr;gap:6px}
+.sim-grid .btn{text-align:left;font-weight:500}
+.sim-grid .btn.warnish{border-style:dashed}
+
+/* binding head */
+.bhead{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:space-between;align-items:flex-start}
+.bhead h2{font-size:20px;letter-spacing:-.01em}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tab{border:1px solid var(--line);background:var(--surface-2);border-radius:99px;padding:3px 11px;font-size:12.5px;font-weight:600}
+.tab.sel{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+/* signal path */
+.path{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin:6px 0 4px;position:relative}
+.stn{position:relative;background:none;border:0;padding:0 4px;text-align:center}
+.stn::before{content:"";position:absolute;top:19px;left:-50%;width:100%;height:3px;background:var(--line);z-index:0}
+.stn:first-child::before{display:none}
+.stn.pass::before,.stn.warn::before,.stn.fail::before{background:currentColor;opacity:.45}
+.stn .dot{position:relative;z-index:1;display:grid;place-items:center;width:38px;height:38px;margin:0 auto;border-radius:12px;border:2px solid var(--line);background:var(--surface);font-weight:700;font-size:15px;transition:background .25s,border-color .25s}
+.stn.pass{color:var(--pass)} .stn.warn{color:var(--review)} .stn.fail{color:var(--fail)} .stn.skip,.stn.pending{color:var(--idle)}
+.stn.pass .dot{background:var(--pass-bg);border-color:var(--pass)}
+.stn.warn .dot{background:var(--review-bg);border-color:var(--review)}
+.stn.fail .dot{background:var(--fail-bg);border-color:var(--fail)}
+.stn.sel .dot{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}
+.stn .nm{display:block;margin-top:6px;font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.2}
+.stn .st{display:block;font-size:12px;color:var(--ink-2)}
+.detail{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:12px}
+.detail h4{font-size:13px;margin-bottom:6px}
+.detail ul{margin:0;padding-left:18px}
+.detail li{margin:2px 0}
+.ready{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border-radius:10px;border:1px solid var(--line)}
+.ready.PASS{background:var(--pass-bg);border-color:var(--pass)}
+.ready.REVIEW{background:var(--review-bg);border-color:var(--review)}
+.ready.FAIL{background:var(--fail-bg);border-color:var(--fail)}
+.ready b{font-size:15px}
+
+/* rails */
+.rail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.rail.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.lane{background:var(--surface-2);border:1px dashed var(--line);border-radius:10px;padding:8px;min-height:88px}
+.lane h4{font-size:12.5px;color:var(--ink-2);font-weight:600;margin-bottom:6px}
+.chip{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 8px;margin-bottom:6px;font-size:12.5px}
+.chip.sel{border-color:var(--accent)}
+.chip b{display:block}
+.chip .btn{margin-top:6px;width:100%}
+.gate{display:block;margin-top:4px;font-size:11.5px;color:var(--ink-3)}
+.rail-gap{margin-top:14px}
+.sect{font-size:13px;font-weight:700;margin:14px 0 8px}
+
+/* code */
+pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre}
+
+/* reviews and feed */
+.rev{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--surface)}
+.rev:last-child{margin-bottom:0}
+.rev header{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+.rev ul{margin:4px 0 6px;padding-left:18px}
+.rev select{font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);max-width:100%}
+.rev .row{display:flex;gap:8px;margin-top:8px}
+.kv{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;margin:3px 0}
+.feed{max-height:380px;overflow:auto;margin:0;padding:0;list-style:none}
+.feed li{padding:7px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.feed li:last-child{border-bottom:0}
+.feed .meta{display:flex;gap:6px;align-items:center;margin-bottom:2px;flex-wrap:wrap;color:var(--ink-2)}
+.empty{color:var(--ink-2);padding:6px 0}
+
+@media (max-width:1180px){
+  .grid{grid-template-columns:280px minmax(0,1fr)}
+  .col.right{grid-column:1 / -1}
+}
+@media (max-width:820px){
+  .grid{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .path{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}
+  .stn:nth-child(4)::before{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Lifecycle controller</h1>
+      <p>Phase 1 adapter health for API and file upstreams. Simulated upstreams, real drift logic.</p>
+    </div>
+    <div class="ctrls">
+      <div class="clock"><span>Day</span><b id="day">0</b></div>
+      <button class="btn" data-act="run">Run batch</button>
+      <button class="btn primary" data-act="next">Next day</button>
+      <button class="btn" id="autoBtn" data-act="auto">Auto: off</button>
+      <button class="btn" data-act="reset">Reset</button>
+    </div>
+  </header>
+  <section class="stats" id="stats"></section>
+  <main class="grid">
+    <aside class="col left">
+      <div class="card"><h2>Bindings <small id="bcount"></small></h2><div id="bindings"></div></div>
+      <div class="card"><h2>Simulate an upstream change</h2><div id="sim"></div></div>
+    </aside>
+    <section class="col main" id="main"></section>
+    <aside class="col right">
+      <div class="card"><h2>Review queue <small id="rcount"></small></h2><div id="reviews"></div></div>
+      <div class="card"><h2>Drift and lifecycle log</h2><ul class="feed" id="feed"></ul></div>
+    </aside>
+  </main>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* =====================================================================
+   CORE LOGIC — mirrors the LLD: detect -> classify -> absorb / review / block
+   ===================================================================== */
+const clone = o => JSON.parse(JSON.stringify(o));
+const pad = n => String(n).padStart(2,'0');
+const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
+function lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let p=Array.from({length:n+1},(_,j)=>j);for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c;}return p[n];}
+function nameSim(a,b){a=norm(a);b=norm(b);if(!a||!b)return 0;return 1-lev(a,b)/Math.max(a.length,b.length);}
+const toggleCase = s => s.includes('_') ? s.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()) : s.replace(/([A-Z])/g,'_$1').toLowerCase();
+function flatten(o,pre='',out={}){for(const [k,v] of Object.entries(o)){const p=pre?pre+'.'+k:k;if(v&&typeof v==='object'&&!Array.isArray(v))flatten(v,p,out);else out[p]=v;}return out;}
+const tname = v => Array.isArray(v)?'array':v===null?'null':typeof v;
+function stripPrefix(r,pre){const o={};for(const k in r){o[k.startsWith(pre)?k.slice(pre.length):k]=r[k];}return o;}
+function pathsOf(records){const o={};records.forEach(r=>{for(const k in r){if(!(k in o))o[k]=tname(r[k]);}});return o;}
+const inferFmt = v => typeof v!=='string'?'OTHER':/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/.test(v)?'US':/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(v)?'ISO':'OTHER';
+const isoZ = d => d.toISOString().replace(/\.\d{3}Z$/,'Z');
+const fmtDate = (d,f) => f==='US' ? `${pad(d.getUTCMonth()+1)}/${pad(d.getUTCDate())}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}` : isoZ(d);
+const SEV = {COMPATIBLE:0,REVIEW_REQUIRED:1,BREAKING:2,UNKNOWN:3};
+
+/* ---- canonical contracts (Phase 1: three tools) ---- */
+function makeContracts(){return {
+ 'order.get':{version:'1.2.0',state:'ACTIVE',sunsetDay:null,fields:[
+   {name:'order_id',type:'string'},{name:'status',type:'enum',values:['in_progress','completed','cancelled']},
+   {name:'customer_id',type:'string'},{name:'created_at',type:'datetime'}]},
+ 'service.get':{version:'1.0.0',state:'ACTIVE',sunsetDay:null,fields:[
+   {name:'service_id',type:'string'},{name:'status',type:'enum',values:['active','suspended','terminated']},
+   {name:'account_id',type:'string'},{name:'activated_at',type:'datetime'}]},
+ 'inventory.snapshot':{version:'1.0.0',state:'ACTIVE',sunsetDay:null,fields:[
+   {name:'item_id',type:'string'},{name:'status',type:'enum',values:['available','reserved','decommissioned']},
+   {name:'site_id',type:'string'},{name:'updated_at',type:'datetime'}]}
+};}
+
+/* ---- simulated upstream shapes ---- */
+const F=(canon,src,vt='string')=>({canon,src,vt});
+const SHAPES={
+ 'order.get':{
+  v2:{envelope:null,dateFormat:'US',delimiter:',',colOrder:[],extra:[],
+      fields:[F('order_id','orderId'),F('status','orderState'),F('customer_id','customer.id'),F('created_at','createdDate')],
+      enumMap:{in_progress:'INPROG',completed:'COMPLETE',cancelled:'CANCELLED'}},
+  v3:{envelope:'data',dateFormat:'ISO',delimiter:',',colOrder:[],extra:[],
+      fields:[F('order_id','order_id'),F('status','state'),F('customer_id','customerId'),F('created_at','created_at')],
+      enumMap:{in_progress:'IN_PROGRESS',completed:'COMPLETED',cancelled:'CANCELED'}}},
+ 'service.get':{
+  v2:{envelope:null,dateFormat:'US',delimiter:',',colOrder:[],extra:[],
+      fields:[F('service_id','serviceId'),F('status','svcStatus'),F('account_id','account.id'),F('activated_at','activatedOn')],
+      enumMap:{active:'ACTIVE',suspended:'SUSPENDED',terminated:'TERMINATED'}},
+  v3:{envelope:'result',dateFormat:'ISO',delimiter:',',colOrder:[],extra:[],
+      fields:[F('service_id','service_id'),F('status','lifecycle_state'),F('account_id','account_ref'),F('activated_at','provisioned_at')],
+      enumMap:{active:'LIVE',suspended:'PAUSED',terminated:'CLOSED'}}},
+ 'inventory.snapshot':{
+  v1:{envelope:null,dateFormat:'ISO',delimiter:',',colOrder:['item_id','status','site_id','updated_at'],extra:[],
+      fields:[F('item_id','item_id'),F('status','status'),F('site_id','site_id'),F('updated_at','updated_at')],
+      enumMap:{available:'AVAIL',reserved:'RSVD',decommissioned:'DECOM'}}}
+};
+const BDEFS=[
+ {id:'order.get',tool:'order.get',kind:'REST',system:'order-management',iface:'GET /orders/{id}',prefix:'ORD-',altStatus:'state',newState:{truth:'awaiting_approval',up:'WAITING_APPROVAL'},ver:'v2'},
+ {id:'service.get',tool:'service.get',kind:'REST',system:'service-inventory',iface:'GET /services/{id}',prefix:'SVC-',altStatus:'svcState',newState:{truth:'pending_activation',up:'PENDING_ACT'},ver:'v2'},
+ {id:'inventory.snapshot',tool:'inventory.snapshot',kind:'FILE',system:'inventory-feed',iface:'inventory_YYYYMMDD.csv',prefix:'ITM-',altStatus:'stock_state',newState:{truth:'in_transit',up:'IN_TRANSIT'},ver:'v1'}
+];
+
+let state, CONTRACTS;
+
+/* ---- truth + rendering (what the upstream "really" holds, in its current shape) ---- */
+function truth(b,i,isNew){return {i,key:b.prefix+(1000+i),other:String(48000+i*7),
+  created:new Date(Date.UTC(2026,7,1+(i%25),6+(i%12),(i*7)%60,(i*13)%60)),
+  status:isNew?b.newState.truth:CONTRACTS[b.tool].fields[1].values[i%3]};}
+function sampleTruths(b,shape,n){
+  const out=[];const extra=b.newActive?2:0;
+  for(let i=0;out.length<n-extra&&i<300;i++){const t=truth(b,i,false);if(shape.enumMap[t.status]!==undefined)out.push(t);}
+  if(b.newActive){[100,101].forEach(i=>{const t=truth(b,i,true);if(shape.enumMap[t.status]!==undefined)out.push(t);});}
+  return out;
+}
+function cell(b,shape,f,t){
+  const idx=b.canon.indexOf(f.canon);
+  if(idx===0)return t.key;
+  if(idx===1)return shape.enumMap[t.status];
+  if(idx===2)return f.vt==='number'?Number(t.other):t.other;
+  return fmtDate(t.created,shape.dateFormat);
+}
+function setPath(o,p,v){const s=p.split('.');let c=o;s.slice(0,-1).forEach(k=>c=c[k]=c[k]||{});c[s[s.length-1]]=v;}
+function renderRest(b,shape,ts){return ts.map(t=>{const o={};shape.fields.forEach(f=>setPath(o,f.src,cell(b,shape,f,t)));shape.extra.forEach(x=>o[x]='web');return shape.envelope?{[shape.envelope]:o}:o;});}
+function renderFile(b,shape,ts){
+  const cols=shape.colOrder.map(c=>shape.fields.find(f=>f.canon===c)).filter(Boolean);
+  const header=cols.map(f=>f.src).concat(shape.extra);
+  const rows=ts.map(t=>cols.map(f=>cell(b,shape,f,t)).concat(shape.extra.map(()=> 'web')).join(shape.delimiter));
+  return [header.join(shape.delimiter)].concat(rows).join('\n');
+}
+function fetchUpstream(b,ver,n=5){
+  const u=b.upstream;
+  if(b.kind==='REST'&&ver==='v2'&&u.sunsetDay!=null&&state.day>=u.sunsetDay)return {status:410,headers:{},ver,truths:[]};
+  const shape=u.versions[ver];if(!shape)return {status:404,headers:{},ver,truths:[]};
+  const ts=sampleTruths(b,shape,n);const headers={};
+  if(b.kind==='REST'&&ver==='v2'&&u.sunsetDay!=null)headers.Sunset='day '+u.sunsetDay;
+  return b.kind==='FILE'?{status:200,headers,ver,truths:ts,text:renderFile(b,shape,ts)}:{status:200,headers,ver,truths:ts,items:renderRest(b,shape,ts)};
+}
+
+/* ---- parse + baseline ---- */
+function analyzeRaw(b,s,delim){
+  if(b.kind==='FILE'){
+    const lines=s.text.split('\n');const header=lines[0].split(delim);
+    if(header.length<2)return {unreadable:true};
+    const records=lines.slice(1).filter(Boolean).map(l=>{const c=l.split(delim);const o={};header.forEach((h,i)=>o[h]=c[i]);return o;});
+    return {records,columns:header};
+  }
+  return {records:s.items.map(x=>flatten(x))};
+}
+function recordsFor(b,s,unwrap,delim){const r=analyzeRaw(b,s,delim);if(r.unreadable)return [];return unwrap?r.records.map(x=>stripPrefix(x,unwrap+'.')):r.records;}
+function deriveMapping(b,shape){
+  const c=CONTRACTS[b.tool];
+  return {version:1,unwrap:shape.envelope,sourceTz:'UTC',coerce:false,fields:b.canon.map(name=>{
+    const f=shape.fields.find(x=>x.canon===name);const cf=c.fields.find(x=>x.name===name);const m={target:name,src:f.src};
+    if(cf.type==='string')m.transform='identity';
+    if(cf.type==='enum'){m.transform='enum';m.values=Object.fromEntries(Object.entries(shape.enumMap).map(([k,v])=>[v,k]));}
+    if(cf.type==='datetime'){m.transform='datetime';m.format=shape.dateFormat;}
+    return m;})};
+}
+function rebaseline(b,a){
+  const s=fetchUpstream(b,a.upstreamVersion,6);if(s.status!==200)return;
+  const delim=a.baseline?a.baseline.delimiter:(b.upstream.versions[a.upstreamVersion]||{}).delimiter||',';
+  const raw=analyzeRaw(b,s,delim);const recs=a.mapping.unwrap?raw.records.map(x=>stripPrefix(x,a.mapping.unwrap+'.')):raw.records;
+  a.baseline={paths:pathsOf(recs),columns:raw.columns||null,delimiter:delim};
+  const t=translate(a.mapping,recs,{});a.lkg={};t.out.forEach(o=>a.lkg[o[b.canon[0]]]=o);
+}
+function makeAdapter(b,ver,mapping,state0,note){
+  const a={id:b.id+'/a'+(b.adapters.length+1),n:b.adapters.length+1,state:state0,upstreamVersion:ver,mapping,note:note||'',createdDay:state.day,lastRun:null,canaryPass:0,seen:{},baseline:null,lkg:{}};
+  rebaseline(b,a);return a;
+}
+const primary = b => b.adapters.find(a=>a.state==='primary');
+
+/* ---- translate + validate ---- */
+function parseDate(v,fmt){
+  if(typeof v!=='string')throw {code:'INVALID_DATE',detail:'not a string'};
+  if(fmt==='US'){const m=/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/.exec(v);
+    if(!m)throw {code:'INVALID_DATE',detail:`"${v}" is not MM/DD/YYYY HH:MM:SS`};
+    const d=new Date(Date.UTC(+m[3],+m[1]-1,+m[2],+m[4],+m[5],+m[6]));
+    if(d.getUTCMonth()!==+m[1]-1)throw {code:'INVALID_DATE',detail:`"${v}" is not a real date`};
+    return isoZ(d);}
+  if(fmt==='ISO'){if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(v))throw {code:'INVALID_DATE',detail:`"${v}" is not ISO-8601 UTC`};return v;}
+  throw {code:'INVALID_DATE',detail:'unknown format '+fmt};
+}
+function translate(mapping,records,ctx){
+  const out=[],errs=[];const alias=ctx.alias||{};const coerce=ctx.coerce||mapping.coerce;
+  records.forEach((rec,ri)=>{
+    const o={};let bad=false;
+    mapping.fields.forEach(f=>{
+      const key=alias[f.src]||f.src;let v=rec[key];
+      if(v===undefined||v===null||v===''){errs.push({ri,field:f.target,code:'MISSING_REQUIRED',detail:`source "${key}" absent`});bad=true;return;}
+      try{
+        if(f.transform==='identity'){if(typeof v!=='string'){if(typeof v==='number'&&coerce)v=String(v);else throw {code:'TYPE_MISMATCH',detail:`${typeof v} at "${key}", string expected`};}}
+        else if(f.transform==='enum'){const m=f.values[v];if(m===undefined)throw {code:'INVALID_ENUM',detail:`"${v}" has no mapping`};v=m;}
+        else if(f.transform==='datetime'){v=parseDate(v,f.format);}
+        o[f.target]=v;
+      }catch(e){errs.push({ri,field:f.target,code:e.code||'TRANSLATION_FAILURE',detail:e.detail||String(e)});bad=true;}
+    });
+    if(!bad)out.push(o);
+  });
+  return {out,errs};
+}
+function validateCanon(b,out){
+  const c=CONTRACTS[b.tool];let bad=0;const msgs=[];
+  out.forEach(o=>{c.fields.forEach(f=>{const v=o[f.name];let ok=typeof v==='string'&&v.length>0;
+    if(ok&&f.type==='enum')ok=f.values.includes(v);
+    if(ok&&f.type==='datetime')ok=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(v);
+    if(!ok){bad++;msgs.push(`${f.name}=${JSON.stringify(v)}`);}});});
+  return {bad,msgs};
+}
+function compareLKG(b,lkg,outs){
+  const key=b.canon[0];let compared=0,identical=0,skipped=0;const diffs=[];
+  outs.forEach(o=>{const ref=lkg[o[key]];if(!ref){skipped++;return;}compared++;
+    const badf=b.canon.filter(k=>ref[k]!==o[k]);
+    if(badf.length)diffs.push({key:o[key],field:badf[0],was:ref[badf[0]],now:o[badf[0]]});else identical++;});
+  return {compared,identical,skipped,diffs};
+}
+
+/* ---- detect ---- */
+function detect(b,a,s){
+  const ev=[];
+  if(s.status===410){ev.push({type:'HTTP_GONE',path:'',detail:`${a.upstreamVersion} returned 410 Gone`,fp:'GONE:'+a.upstreamVersion});return {events:ev,records:[],stage:1};}
+  if(s.headers.Sunset){const left=b.upstream.sunsetDay-state.day;ev.push({type:'SUNSET_ANNOUNCED',path:'',detail:`${a.upstreamVersion} retires on day ${b.upstream.sunsetDay} (${left} day${left===1?'':'s'} left)`,fp:'SUNSET:'+b.upstream.sunsetDay});}
+  const delim=a.baseline.delimiter;const raw=analyzeRaw(b,s,delim);
+  if(raw.unreadable){ev.push({type:'FORMAT_UNREADABLE',path:'',detail:`header cannot be parsed with delimiter "${delim}"`,fp:'UNREADABLE'});return {events:ev,records:[]};}
+  let records=raw.records,wrapper=null;
+  if(b.kind==='REST'){
+    if(a.mapping.unwrap){records=raw.records.map(r=>stripPrefix(r,a.mapping.unwrap+'.'));}
+    else{const tops=new Set(Object.keys(raw.records[0]||{}).map(p=>p.split('.')[0]));
+      if(tops.size===1){const k=[...tops][0];const st=raw.records.map(r=>stripPrefix(r,k+'.'));
+        if(a.mapping.fields.every(f=>f.src in (st[0]||{}))){wrapper=k;records=st;ev.push({type:'ENVELOPE_ADDED',path:k,detail:`response is now wrapped in "${k}"`,fp:'ENVELOPE:'+k});}}}
+  }else{
+    const cb=a.baseline.columns,cn=raw.columns;
+    if(cb.join()!==cn.join()&&[...cb].sort().join()===[...cn].sort().join())ev.push({type:'COLUMNS_REORDERED',path:'',detail:'column order changed',fp:'REORDER:'+cn.join()});
+  }
+  const bp=a.baseline.paths,op=pathsOf(records);
+  Object.keys(bp).forEach(p=>{if(!(p in op))ev.push({type:'FIELD_REMOVED',path:p,detail:`"${p}" is no longer present`,fp:'REMOVED:'+p});});
+  Object.keys(op).forEach(p=>{
+    if(!(p in bp))ev.push({type:'FIELD_ADDED',path:p,detail:`new field "${p}" (${op[p]})`,fp:'ADDED:'+p});
+    else if(op[p]!==bp[p])ev.push({type:'TYPE_CHANGED',path:p,from:bp[p],to:op[p],detail:`"${p}" changed ${bp[p]} → ${op[p]}`,fp:`TYPE:${p}:${op[p]}`});});
+  a.mapping.fields.forEach(f=>{
+    if(!(f.src in op))return;const vals=records.map(r=>r[f.src]);
+    if(f.transform==='enum'){[...new Set(vals.filter(v=>v!==undefined&&!(v in f.values)))].forEach(v=>ev.push({type:'ENUM_NEW',path:f.src,field:f.target,value:v,detail:`unmapped value "${v}" at "${f.src}"`,fp:`ENUM:${f.src}:${v}`}));}
+    if(f.transform==='datetime'){const fm=inferFmt(vals[0]);if(fm!==f.format)ev.push({type:'DATE_FORMAT_CHANGED',path:f.src,field:f.target,from:f.format,to:fm,detail:`"${f.src}" format ${f.format} → ${fm}`,fp:`DATE:${f.src}:${fm}`});}
+  });
+  return {events:ev,records,wrapper};
+}
+
+/* ---- classify ---- */
+function scoreCandidate(f,path,records){
+  const name=Math.max(nameSim(f.src,path),nameSim(f.target,path));
+  const vals=records.map(r=>r[path]).filter(v=>v!==undefined);
+  const t=vals.length?(vals.every(v=>typeof v==='string')?1:(vals.every(v=>typeof v==='number')&&f.transform==='identity'?0.7:0)):0;
+  let val=0.5;
+  if(f.transform==='enum'){const known=[...Object.keys(f.values),...Object.values(f.values)];val=vals.length?vals.filter(v=>known.some(k=>nameSim(String(v),k)>=0.8)).length/vals.length:0;}
+  else if(f.transform==='datetime'){val=vals.length&&vals.every(v=>inferFmt(v)!=='OTHER')?1:0;}
+  return +(0.5*name+0.2*t+0.3*val).toFixed(2);
+}
+function classify(b,a,det){
+  const items=[],ctx={coerce:false,alias:{}};const evs=det.events;const recs=det.records||[];
+  const removed=evs.filter(e=>e.type==='FIELD_REMOVED'),added=evs.filter(e=>e.type==='FIELD_ADDED');
+  const used=new Set();const bySrc=new Map(a.mapping.fields.map(f=>[f.src,f]));
+  removed.forEach(r=>{
+    const f=bySrc.get(r.path);
+    if(!f){items.push({event:r,cls:'COMPATIBLE',tier:'A',reason:'unmapped field removed, no impact'});return;}
+    let best=null;added.forEach(ad=>{if(used.has(ad.path))return;const sc=scoreCandidate(f,ad.path,recs);if(!best||sc>best.sc)best={ad,sc};});
+    if(best&&norm(best.ad.path)===norm(r.path)){used.add(best.ad.path);ctx.alias[r.path]=best.ad.path;
+      items.push({event:r,cls:'COMPATIBLE',tier:'A',alias:{from:r.path,to:best.ad.path},reason:`case-style rename, aliased "${r.path}" → "${best.ad.path}"`});}
+    else if(best&&best.sc>=0.6){used.add(best.ad.path);
+      items.push({event:r,cls:'REVIEW_REQUIRED',target:f.target,rename:{from:r.path,to:best.ad.path,score:best.sc},reason:`probable rename "${r.path}" → "${best.ad.path}" (confidence ${best.sc})`});}
+    else items.push({event:r,cls:'BREAKING',reason:`required source "${r.path}" is gone and no confident replacement exists`});
+  });
+  added.forEach(ad=>{if(!used.has(ad.path))items.push({event:ad,cls:'COMPATIBLE',tier:'A',reason:'new optional field, ignored (not in mapping)'});});
+  evs.forEach(e=>{
+    switch(e.type){
+      case 'FIELD_REMOVED':case 'FIELD_ADDED':break;
+      case 'ENVELOPE_ADDED':items.push({event:e,cls:'COMPATIBLE',tier:'A',unwrap:e.path,reason:`envelope "${e.path}" unwrapped deterministically`});break;
+      case 'COLUMNS_REORDERED':items.push({event:e,cls:'COMPATIBLE',tier:'A',reason:'columns are read by header name, order is irrelevant'});break;
+      case 'TYPE_CHANGED':{const f=bySrc.get(e.path);
+        if(!f)items.push({event:e,cls:'COMPATIBLE',tier:'A',reason:'type change on unmapped field, ignored'});
+        else if(f.transform==='identity'&&e.to==='number'){ctx.coerce=true;items.push({event:e,cls:'COMPATIBLE',tier:'A',coerce:true,reason:'number coerced to string (supported transform)'});}
+        else items.push({event:e,cls:'BREAKING',reason:'unsupported type change on a mapped field'});break;}
+      case 'ENUM_NEW':items.push({event:e,cls:'REVIEW_REQUIRED',target:e.field,enumEv:{value:e.value},reason:`new enum value "${e.value}" needs a reviewer decision`});break;
+      case 'DATE_FORMAT_CHANGED':items.push({event:e,cls:'REVIEW_REQUIRED',target:e.field,dateChange:{from:e.from,to:e.to},reason:`date format changed ${e.from} → ${e.to}; day/month order and timezone must be confirmed`});break;
+      case 'SUNSET_ANNOUNCED':items.push({event:e,cls:'REVIEW_REQUIRED',sunset:true,reason:'planned upstream retirement: stand up the next adapter version'});break;
+      case 'HTTP_GONE':items.push({event:e,cls:'BREAKING',reason:'upstream version is gone; migrate to a new adapter version'});break;
+      case 'FORMAT_UNREADABLE':items.push({event:e,cls:'BREAKING',reason:'file cannot be parsed; quarantine and escalate'});break;
+      default:items.push({event:e,cls:'UNKNOWN',reason:'unrecognised drift; blocked until a human classifies it'});
+    }});
+  const overall=items.reduce((m,i)=>SEV[i.cls]>SEV[m]?i.cls:m,'COMPATIBLE');
+  return {items,overall,ctx};
+}
+
+/* ---- propose fix for drift on a live adapter (folds Tier A changes in too) ---- */
+function contractEnum(b,target){return CONTRACTS[b.tool].fields.find(f=>f.name===target).values;}
+function proposeFix(b,a,det,items){
+  const m=clone(a.mapping);const changes=[],choices=[];let conf=1;
+  if(det.wrapper&&!m.unwrap){m.unwrap=det.wrapper;changes.push(`unwrap envelope "${det.wrapper}"`);}
+  items.forEach(it=>{
+    if(it.coerce){m.coerce=true;changes.push('coerce numbers to strings for identity fields');}
+    if(it.alias){const f=m.fields.find(x=>x.src===it.alias.from);f.src=it.alias.to;changes.push(`${f.target}: source "${it.alias.from}" → "${it.alias.to}" (case style)`);}
+    if(it.rename){const f=m.fields.find(x=>x.target===it.target);f.src=it.rename.to;conf=Math.min(conf,it.rename.score);changes.push(`${f.target}: source "${it.rename.from}" → "${it.rename.to}" (confidence ${it.rename.score})`);}
+    if(it.dateChange){const f=m.fields.find(x=>x.target===it.target);f.format=it.dateChange.to;changes.push(`${f.target}: datetime format ${it.dateChange.from} → ${it.dateChange.to}, source timezone stays ${m.sourceTz}`);}
+    if(it.enumEv){const f=m.fields.find(x=>x.target===it.target);const opts=contractEnum(b,it.target);
+      let best=null;opts.forEach(o=>{const s=nameSim(it.enumEv.value,o);if(!best||s>best.s)best={o,s};});
+      if(best&&best.s>=0.8){f.values[it.enumEv.value]=best.o;changes.push(`${f.target}: "${it.enumEv.value}" → ${best.o} (name match)`);}
+      else{choices.push({key:it.target+':'+it.enumEv.value,target:it.target,value:it.enumEv.value,options:opts,selected:null});changes.push(`${f.target}: "${it.enumEv.value}" → reviewer must choose`);}}
+  });
+  return {mapping:m,changes,choices,conf};
+}
+function withChoices(rv){const m=clone(rv.candidate);rv.choices.forEach(c=>{if(c.selected){m.fields.find(f=>f.target===c.target).values[c.value]=c.selected;}});return m;}
+function evalCandidate(b,a,cand){
+  const s=fetchUpstream(b,a.upstreamVersion,6);
+  if(s.status!==200)return {sandbox:{total:0,valid:0,note:'upstream unavailable'},shadow:{compared:0,identical:0,skipped:0,diffs:[]}};
+  const recs=recordsFor(b,s,cand.unwrap,a.baseline.delimiter);
+  const t=translate(cand,recs,{coerce:cand.coerce});
+  const validOnes=t.out.filter(o=>validateCanon(b,[o]).bad===0);
+  return {sandbox:{total:recs.length,valid:validOnes.length,note:t.errs[0]?t.errs[0].detail:''},
+          shadow:compareLKG(b,a.lkg,validOnes)};
+}
+
+/* ---- new-version proposal (API deprecation path) ---- */
+function proposeVersion(b,oldMapping,s){
+  const raw=analyzeRaw(b,s,',');let records=raw.records,unwrap=null;
+  if(b.kind==='REST'){const tops=new Set(Object.keys(records[0]||{}).map(p=>p.split('.')[0]));
+    if(tops.size===1){const k=[...tops][0];if(records.every(r=>Object.keys(r).every(p=>p.startsWith(k+'.')))){unwrap=k;records=records.map(r=>stripPrefix(r,k+'.'));}}}
+  const paths=Object.keys(pathsOf(records));const pairs=[];
+  oldMapping.fields.forEach(f=>paths.forEach(p=>pairs.push({f,p,sc:scoreCandidate(f,p,records)})));
+  pairs.sort((x,y)=>y.sc-x.sc);
+  const pickF=new Map(),usedP=new Set();
+  pairs.forEach(x=>{if(pickF.has(x.f.target)||usedP.has(x.p))return;if(x.sc>=0.6){pickF.set(x.f.target,x);usedP.add(x.p);}});
+  const m=clone(oldMapping);m.version=1;m.unwrap=unwrap;m.coerce=false;const notes=[],unresolved=[];
+  if(unwrap)notes.push(`unwrap envelope "${unwrap}"`);
+  m.fields.forEach(f=>{
+    const pick=pickF.get(f.target);
+    if(!pick){const best=pairs.filter(x=>x.f.target===f.target)[0];unresolved.push(`${f.target}: no confident source (best guess "${best?best.p:'none'}" scored ${best?best.sc:0})`);return;}
+    notes.push(`${f.target}: "${f.src}" → "${pick.p}" (confidence ${pick.sc})`);f.src=pick.p;
+    if(f.transform==='datetime'){const fm=inferFmt(records[0][f.src]);f.format=fm;notes.push(`${f.target}: datetime format ${fm}`);}
+    if(f.transform==='enum'){const opts=contractEnum(b,f.target);const vals=[...new Set(records.map(r=>r[f.src]))];f.values={};
+      vals.forEach(v=>{let best=null;opts.forEach(o=>{const sc=nameSim(v,o);if(!best||sc>best.sc)best={o,sc};});
+        if(best&&best.sc>=0.8){f.values[v]=best.o;notes.push(`${f.target}: "${v}" → ${best.o}`);}
+        else unresolved.push(`${f.target}: upstream value "${v}" has no confident canonical match`);});}
+  });
+  return {ok:unresolved.length===0,mapping:m,notes,unresolved};
+}
+
+/* ---- log ---- */
+function log(b,cls,msg,src){state.seq++;state.log.unshift({seq:state.seq,day:state.day,binding:b?b.id:'system',cls,msg,src:src||'batch'});if(state.log.length>80)state.log.pop();}
+function logDrift(b,a,it,src){
+  const fp=it.event.fp||it.event.type;if(a.seen[fp])return;a.seen[fp]=1;
+  if(it.tier==='A')state.metrics.absorbed++;else if(SEV[it.cls]>=2)state.metrics.blocked++;
+  log(b,it.cls,`${a.id.split('/')[1]}: ${it.event.type.toLowerCase().replace(/_/g,' ')}, ${it.reason}`,src);
+}
+
+/* ---- assess: detect + classify + log + open review ---- */
+function assess(b,a,src){
+  const s=fetchUpstream(b,a.upstreamVersion,5);let det,cls;
+  try{det=detect(b,a,s);cls=classify(b,a,det);}
+  catch(e){det={events:[{type:'DETECTOR_ERROR',detail:String(e),fp:'ERR'}],records:[]};cls={items:[{event:det.events[0],cls:'UNKNOWN',reason:'detector error, blocked'}],overall:'UNKNOWN',ctx:{coerce:false,alias:{}}};}
+  cls.items.forEach(it=>logDrift(b,a,it,src));
+  let review=null;const ri=cls.items.filter(i=>i.rename||i.enumEv||i.dateChange);
+  if(ri.length){
+    const sig=ri.map(i=>i.event.fp).sort().join('|');
+    review=state.reviews.find(r=>r.adapterId===a.id&&r.sig===sig);
+    if(!review){
+      state.reviews.filter(r=>r.adapterId===a.id&&r.status==='open').forEach(r=>r.status='superseded');
+      const P=proposeFix(b,a,det,cls.items);
+      review={id:'R'+(state.reviews.length+1),bindingId:b.id,adapterId:a.id,sig,day:state.day,status:'open',events:cls.items.filter(i=>SEV[i.cls]>=1&&!i.sunset).map(i=>i.reason),candidate:P.mapping,changes:P.changes,choices:P.choices,conf:P.conf,src};
+      review.eval=evalCandidate(b,a,withChoices(review));
+      state.reviews.unshift(review);state.metrics.reviews++;
+      log(b,'REVIEW_REQUIRED',`review ${review.id} opened with a candidate mapping (sandbox ${review.eval.sandbox.valid}/${review.eval.sandbox.total})`,src);
+    }
+  }
+  return {s,det,cls,review};
+}
+
+/* ---- sanity pipeline (the 6 stages the controller runs per adapter) ---- */
+function untargeted(b){return Object.keys(b.upstream.versions).filter(v=>!b.adapters.some(x=>x.upstreamVersion===v&&['tested','canary','primary'].includes(x.state)));}
+function runPipeline(b,a,src='batch'){
+  const c=CONTRACTS[b.tool];const A=assess(b,a,src);const {s,det,cls}=A;const stages=[];
+  const S1=['SUNSET_ANNOUNCED','HTTP_GONE'];
+  // 1 version check
+  {const lines=[`contract ${b.tool}@${c.version} is ${c.state}`,`upstream ${a.upstreamVersion}: HTTP ${s.status}`];
+   if(s.headers.Sunset)lines.push(`Sunset header present: ${det.events.find(e=>e.type==='SUNSET_ANNOUNCED').detail}`);
+   const un=untargeted(b);if(un.length&&a.state==='primary')lines.push(`newer upstream version discovered: ${un.join(', ')} (no adapter yet)`);
+   const st=s.status!==200?'fail':((s.headers.Sunset||un.length)&&a.state==='primary'?'warn':'pass');
+   stages.push({name:'Version check',status:st,lines});}
+  // 2 schema comparison
+  {const evs=det.events.filter(e=>!S1.includes(e.type));
+   const lines=evs.length?evs.map(e=>e.detail):['no differences from the registered baseline'];
+   if(s.status!==200)stages.push({name:'Schema comparison',status:'skip',lines:['skipped: upstream not readable']});
+   else{const worst=cls.items.filter(i=>!S1.includes(i.event.type)).reduce((m,i)=>SEV[i.cls]>SEV[m]?i.cls:m,'COMPATIBLE');
+     stages.push({name:'Schema comparison',status:worst==='COMPATIBLE'?'pass':worst==='REVIEW_REQUIRED'?'warn':'fail',lines});}}
+  // 3 adapter compatibility
+  {const lines=cls.items.length?cls.items.map(i=>`${i.cls === 'COMPATIBLE' ? 'absorb' : i.cls === 'REVIEW_REQUIRED' ? 'review' : 'block'}: ${i.reason}`):['baseline matches, nothing to absorb'];
+   if(A.review)lines.push(`review ${A.review.id} is ${A.review.status}`);
+   stages.push({name:'Adapter compatibility',status:cls.overall==='COMPATIBLE'?'pass':cls.overall==='REVIEW_REQUIRED'?'warn':'fail',lines});}
+  // 4 smoke test
+  let t=null,smokeOk=false;
+  if(s.status!==200||!det.records.length){stages.push({name:'Smoke test',status:'skip',lines:['skipped: nothing to translate']});}
+  else{t=translate(a.mapping,det.records,cls.ctx);smokeOk=t.errs.length===0;
+    const lines=[`${t.out.length}/${det.records.length} sample records translated`];t.errs.slice(0,3).forEach(e=>lines.push(`${e.code} on ${e.field}: ${e.detail}`));
+    if(Object.keys(cls.ctx.alias).length||cls.ctx.coerce)lines.push('translated with deterministic absorption rules applied');
+    stages.push({name:'Smoke test',status:smokeOk?'pass':'fail',lines});}
+  // 5 canonical validation + regression
+  let valOk=false;
+  if(!t)stages.push({name:'Canonical validation',status:'skip',lines:['skipped']});
+  else{const v=validateCanon(b,t.out);const cmp=compareLKG(b,a.lkg,t.out);const lines=[v.bad?`${v.bad} field violations against ${b.tool}@${c.version}`:`all ${t.out.length} outputs satisfy ${b.tool}@${c.version}`,`regression vs last-known-good: ${cmp.identical}/${cmp.compared} identical${cmp.skipped?`, ${cmp.skipped} new keys not comparable`:''}`];
+    cmp.diffs.slice(0,2).forEach(d=>lines.push(`${d.key}.${d.field}: was ${d.was}, now ${d.now}`));
+    const pr=primary(b);if(a.state!=='primary'&&pr&&pr!==a){const c2=compareLKG(b,pr.lkg,t.out);lines.push(`shadow vs primary ${pr.id.split('/')[1]}: ${c2.identical}/${c2.compared} identical`);if(c2.diffs.length){valOk=false;cmp.diffs.push(...c2.diffs);}}
+    valOk=v.bad===0&&cmp.diffs.length===0&&t.out.length>0;
+    stages.push({name:'Canonical validation',status:valOk?'pass':'fail',lines});}
+  // 6 readiness
+  let readiness;const reasons=[];
+  if(cls.overall==='COMPATIBLE'&&smokeOk&&valOk){readiness='PASS';reasons.push('all checks passed');}
+  else if(cls.overall==='REVIEW_REQUIRED'){readiness='REVIEW';reasons.push(A.review&&A.review.status==='rejected'?'review was rejected, migration needed':'waiting on human review or migration');}
+  else{readiness='FAIL';reasons.push(cls.overall==='COMPATIBLE'?'unexplained failure, treated as UNKNOWN and blocked':'breaking or unknown change, traffic fails closed');}
+  stages.push({name:'Readiness',status:readiness==='PASS'?'pass':readiness==='REVIEW'?'warn':'fail',lines:reasons});
+  const run={day:state.day,adapterId:a.id,stages,overall:cls.overall,readiness};
+  a.lastRun=run;if(a.state==='canary'&&readiness==='PASS')a.canaryPass++;
+  return run;
+}
+function health(b){if(CONTRACTS[b.tool].state==='SUNSET')return 'SUNSET';const p=primary(b);return p&&p.lastRun?p.lastRun.readiness:'PENDING';}
+
+function runBatch(advance){
+  if(advance)state.day++;
+  Object.entries(CONTRACTS).forEach(([t,c])=>{if(c.state==='DEPRECATED'&&c.sunsetDay!=null&&state.day>=c.sunsetDay){c.state='SUNSET';log(null,'SYSTEM',`contract ${t}@${c.version} reached SUNSET; tool is no longer served`);}});
+  state.bindings.forEach(b=>{if(CONTRACTS[b.tool].state==='SUNSET')return;b.adapters.filter(a=>['tested','canary','primary'].includes(a.state)).forEach(a=>runPipeline(b,a));});
+  state.batches++;
+}
+
+/* ---- live call (runtime path: same detector, fails closed) ---- */
+function liveCall(b){
+  const c=CONTRACTS[b.tool];
+  if(c.state==='SUNSET')return {error:{code:'CONTRACT_SUNSET',message:`${b.tool}@${c.version} is sunset and no longer served`}};
+  const a=primary(b);const A=assess(b,a,'runtime');
+  if(A.s.status!==200)return {error:{code:'UPSTREAM_UNAVAILABLE',status:A.s.status,class:A.cls.overall,message:'upstream version is gone; traffic fails closed until a new adapter is primary'}};
+  const s4=fetchUpstream(b,a.upstreamVersion,4);const det=detect(b,a,s4);const cls=classify(b,a,det);
+  if(!det.records.length)return {error:{code:'DRIFT_BLOCKED',class:cls.overall,message:'response could not be parsed; fails closed',events:cls.items.map(i=>i.reason)}};
+  const t=translate(a.mapping,det.records,cls.ctx);const v=validateCanon(b,t.out);
+  if(t.errs.length||v.bad)return {error:{code:'DRIFT_BLOCKED',class:cls.overall,message:'canonical output could not be produced; fails closed',detail:t.errs.slice(0,2).map(e=>`${e.code}: ${e.detail}`),review:A.review?A.review.id:null}};
+  const warnings=cls.items.filter(i=>i.sunset).map(i=>i.event.detail);
+  return {data:t.out.slice(0,2),_meta:{contract:`${b.tool}@${c.version}`,served_by:`${a.id.split('/')[1]} (mapping v${a.mapping.version}, upstream ${a.upstreamVersion})`,absorbed:cls.items.filter(i=>i.tier==='A'&&i.cls==='COMPATIBLE'&&i.event.type!=='FIELD_ADDED').map(i=>i.reason),warnings}};
+}
+
+/* ---- lifecycle actions ---- */
+function promote(b,a){
+  if(a.state==='tested'){if(!a.lastRun||a.lastRun.readiness!=='PASS')return;a.state='canary';a.canaryPass=0;log(b,'PASS',`${a.id.split('/')[1]} promoted tested → canary`);}
+  else if(a.state==='canary'){if(!a.lastRun||a.lastRun.readiness!=='PASS'||a.canaryPass<1)return;const old=primary(b);if(old){old.state='deprecated';log(b,'REVIEW_REQUIRED',`${old.id.split('/')[1]} moved primary → deprecated`);}a.state='primary';log(b,'PASS',`${a.id.split('/')[1]} promoted canary → primary`);}
+}
+function retire(b,a){if(a.state==='deprecated'){a.state='retired';log(b,'SYSTEM',`${a.id.split('/')[1]} retired`);}}
+function standUp(b,ver){
+  const s=fetchUpstream(b,ver,8);if(s.status!==200){log(b,'BREAKING',`cannot stand up adapter for ${ver}: HTTP ${s.status}`);return;}
+  const P=proposeVersion(b,primary(b).mapping,s);
+  if(!P.ok){b.proposalFailed={ver,unresolved:P.unresolved};log(b,'BREAKING',`no automatic mapping for ${ver}: ${P.unresolved.length} unresolved field${P.unresolved.length===1?'':'s'}; operator must author it`);return;}
+  const a=makeAdapter(b,ver,P.mapping,'tested','proposed automatically');b.adapters.push(a);b.proposalFailed=null;state.selAdapter=a.id;
+  log(b,'PASS',`adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state (${P.notes.length} mapping decisions)`);runPipeline(b,a);
+}
+function operatorMap(b,ver){
+  const m=deriveMapping(b,b.upstream.versions[ver]);const a=makeAdapter(b,ver,m,'tested','operator authored');b.adapters.push(a);b.proposalFailed=null;state.selAdapter=a.id;
+  log(b,'PASS',`operator-authored adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state`);runPipeline(b,a);
+}
+function approve(rv){
+  const b=state.bindings.find(x=>x.id===rv.bindingId),a=b.adapters.find(x=>x.id===rv.adapterId);
+  if(rv.status!=='open'||rv.choices.some(c=>!c.selected))return;
+  const cand=withChoices(rv);const ev=evalCandidate(b,a,cand);
+  if(ev.sandbox.valid!==ev.sandbox.total||ev.shadow.diffs.length)return;
+  cand.version=a.mapping.version+1;a.mapping=cand;rebaseline(b,a);rv.status='approved';state.metrics.approved++;
+  log(b,'PASS',`review ${rv.id} approved; mapping registry now holds ${a.id.split('/')[1]} mapping v${cand.version}`);runPipeline(b,a);
+}
+function reject(rv){if(rv.status!=='open')return;rv.status='rejected';log(state.bindings.find(x=>x.id===rv.bindingId),'BREAKING',`review ${rv.id} rejected`);}
+function deprecateContract(tool){const c=CONTRACTS[tool];if(c.state!=='ACTIVE')return;c.state='DEPRECATED';c.sunsetDay=state.day+5;log(null,'REVIEW_REQUIRED',`contract ${tool}@${c.version} deprecated; sunset on day ${c.sunsetDay}`);}
+
+/* ---- simulator: upstream mutations ---- */
+function targetShape(b){const a=primary(b);return b.upstream.versions[a.upstreamVersion];}
+const INJ=[
+ {id:'add_optional',label:'Add an optional field',kinds:['REST','FILE'],apply:(b,s)=>{if(!s.extra.includes('channel'))s.extra.push('channel');}},
+ {id:'rename_case',label:'Rename first field (camelCase ↔ snake_case)',kinds:['REST','FILE'],apply:(b,s)=>{const f=s.fields[0];f.src=toggleCase(f.src);}},
+ {id:'rename_status',label:'Rename the status field',kinds:['REST','FILE'],apply:(b,s)=>{s.fields.find(f=>f.canon===b.canon[1]).src=b.altStatus;}},
+ {id:'type_change',label:'Second identifier becomes a number',kinds:['REST','FILE'],apply:(b,s)=>{s.fields.find(f=>f.canon===b.canon[2]).vt='number';}},
+ {id:'new_enum',label:'Introduce a new status value',kinds:['REST','FILE'],apply:(b,s)=>{b.newActive=true;s.enumMap[b.newState.truth]=b.newState.up;}},
+ {id:'date_format',label:'Change the timestamp format',kinds:['REST','FILE'],apply:(b,s)=>{s.dateFormat=s.dateFormat==='US'?'ISO':'US';}},
+ {id:'envelope',label:'Wrap the response in an envelope',kinds:['REST'],apply:(b,s)=>{s.envelope=s.envelope||'data';}},
+ {id:'reorder',label:'Reorder the columns',kinds:['FILE'],apply:(b,s)=>{s.colOrder.reverse();}},
+ {id:'remove_required',label:'Remove a required field',kinds:['REST','FILE'],apply:(b,s)=>{s.fields=s.fields.filter(f=>f.canon!==b.canon[3]);s.colOrder=s.colOrder.filter(c=>c!==b.canon[3]);}},
+ {id:'delimiter',label:'Change the file delimiter',kinds:['FILE'],apply:(b,s)=>{s.delimiter='|';}},
+ {id:'sunset',label:'Announce v2 sunset in 3 days, release v3',kinds:['REST'],custom:true,apply:(b)=>{if(b.upstream.sunsetDay!=null)return;b.upstream.sunsetDay=state.day+3;b.upstream.versions.v3=clone(SHAPES[b.tool].v3);b.pristine.v3=clone(SHAPES[b.tool].v3);}}
+];
+function inject(b,id){
+  const inj=INJ.find(x=>x.id===id);if(!inj)return;
+  if(inj.custom){inj.apply(b);log(b,'SYSTEM','simulated: upstream announced sunset of v2 and released v3','sim');return;}
+  inj.apply(b,targetShape(b));log(b,'SYSTEM','simulated: '+inj.label.toLowerCase(),'sim');
+}
+
+/* ---- init ---- */
+function initState(){
+  CONTRACTS=makeContracts();
+  state={day:0,seq:0,batches:0,log:[],reviews:[],metrics:{absorbed:0,blocked:0,reviews:0,approved:0},sel:'order.get',selAdapter:null,selStage:null,reveal:6,calls:{},bindings:[]};
+  BDEFS.forEach(d=>{
+    const shape=SHAPES[d.tool][d.ver];
+    const b=Object.assign({},d,{canon:CONTRACTS[d.tool].fields.map(f=>f.name),newActive:false,proposalFailed:null,adapters:[],
+      upstream:{versions:{[d.ver]:clone(shape)},sunsetDay:null},pristine:{[d.ver]:clone(shape)}});
+    b.adapters.push(makeAdapter(b,d.ver,deriveMapping(b,shape),'primary','initial'));
+    state.bindings.push(b);
+  });
+  runBatch(false);
+  log(null,'SYSTEM','controller started; baselines captured for 3 bindings');
+}
+
+if(typeof window!=='undefined')window.__core={initState,getState:()=>state,CONTRACTS:()=>CONTRACTS,runBatch,runPipeline,inject,approve,reject,standUp,operatorMap,promote,retire,liveCall,health,primary,withChoices,evalCandidate,deprecateContract};
+
+/* =====================================================================
+   UI
+   ===================================================================== */
+if(typeof document==='undefined')return;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let autoTimer=null,animTimer=null;
+const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const selB=()=>state.bindings.find(b=>b.id===state.sel);
+const selA=b=>b.adapters.find(a=>a.id===state.selAdapter&&a.state!=='retired')||primary(b);
+const short=a=>a.id.split('/')[1];
+
+function animate(){
+  clearInterval(animTimer);
+  if(reduce){state.reveal=6;render();return;}
+  state.reveal=0;render();
+  animTimer=setInterval(()=>{state.reveal++;if(state.reveal>=6)clearInterval(animTimer);render();},170);
+}
+
+function renderStats(){
+  const h=state.bindings.filter(b=>health(b)==='PASS').length,open=state.reviews.filter(r=>r.status==='open').length;
+  $('#day').textContent=state.day;
+  $('#stats').innerHTML=[[`${h}/${state.bindings.length}`,'bindings passing'],[open,'reviews waiting'],[state.metrics.absorbed,'changes absorbed automatically'],[state.metrics.blocked,'breaking changes blocked']]
+    .map(([n,l])=>`<div class="stat"><b>${n}</b><small>${l}</small></div>`).join('');
+}
+function renderBindings(){
+  $('#bcount').textContent=state.bindings.length+' tools';
+  $('#bindings').innerHTML=state.bindings.map(b=>{const h=health(b),p=primary(b);
+    return `<button class="bnd ${b.id===state.sel?'sel':''}" data-act="sel" data-arg="${b.id}">
+      <div class="r1"><span class="nm">${b.tool}</span><span class="pill ${h}">${h}</span></div>
+      <div class="r2">${b.kind} from ${b.system}<br>serving ${short(p)} on upstream ${p.upstreamVersion}</div></button>`;}).join('');
+}
+function renderSim(){
+  const b=selB();
+  $('#sim').innerHTML=`<p class="tiny" style="margin-bottom:8px">Changes apply to <b>${b.tool}</b> (${b.kind}). Inject one, then run a batch.</p><div class="sim-grid">`+
+    INJ.filter(i=>i.kinds.includes(b.kind)).map(i=>`<button class="btn sm ${i.custom?'warnish':''}" data-act="inject" data-arg="${i.id}" ${i.id==='sunset'&&b.upstream.sunsetDay!=null?'disabled':''}>${i.label}</button>`).join('')+`</div>`;
+}
+function stageClass(i,run){if(!run)return 'pending';if(i>=state.reveal)return 'pending';return run.stages[i].status;}
+function renderMain(){
+  const b=selB(),a=selA(b),c=CONTRACTS[b.tool],run=a.lastRun;
+  const names=['Version check','Schema comparison','Adapter compatibility','Smoke test','Canonical validation','Readiness'];
+  const symbol={pass:'✓',warn:'!',fail:'×',skip:'–',pending:'·'};
+  const selStage=state.selStage!=null?state.selStage:(run?Math.max(0,run.stages.findIndex(s=>s.status==='fail'||s.status==='warn')):0);
+  const tabs=b.adapters.filter(x=>x.state!=='retired').map(x=>`<button class="tab ${x.id===a.id?'sel':''}" data-act="seladapter" data-arg="${x.id}">${short(x)} on ${x.upstreamVersion} (${x.state})</button>`).join('');
+  const un=untargeted(b);
+  let standBtn='';
+  if(un.length)standBtn=un.map(v=>`<button class="btn primary sm" data-act="standup" data-arg="${v}">Stand up adapter for ${v}</button>`).join(' ');
+  let failNote='';
+  if(b.proposalFailed){failNote=`<div class="detail" style="border-color:var(--fail)"><h4>Automatic mapping for ${b.proposalFailed.ver} was refused</h4><ul>${b.proposalFailed.unresolved.map(u=>`<li>${esc(u)}</li>`).join('')}</ul><p class="tiny" style="margin-top:6px">Confidence is too low to propose a mapping. A person writes it; the same tests and gates then apply.</p><div style="margin-top:8px"><button class="btn sm" data-act="opmap" data-arg="${b.proposalFailed.ver}">Apply operator-authored mapping for ${b.proposalFailed.ver}</button></div></div>`;}
+  const st=run?run.stages[selStage]:null;
+  const call=state.calls[b.id];
+  const mp=a.mapping;
+  const yaml=[`mapping ${b.tool.replace('.','-')}-${a.upstreamVersion}   version ${mp.version}`,`unwrap: ${mp.unwrap||'none'}    source_tz: ${mp.sourceTz}    coerce_numbers: ${mp.coerce}`,'fields:']
+    .concat(mp.fields.map(f=>`  ${f.src.padEnd(16)} → ${f.target.padEnd(12)} ${f.transform}${f.transform==='enum'?' '+JSON.stringify(f.values):''}${f.transform==='datetime'?' '+f.format:''}`)).join('\n');
+  const lane=(stt,label)=>`<div class="lane"><h4>${label}</h4>${b.adapters.filter(x=>x.state===stt).map(x=>{
+      let btn='',gate='';
+      if(stt==='tested'){const ok=x.lastRun&&x.lastRun.readiness==='PASS';btn=`<button class="btn sm" data-act="promote" data-arg="${x.id}" ${ok?'':'disabled'}>Promote to canary</button>`;gate=ok?'contract tests passed':'needs a passing batch run';}
+      if(stt==='canary'){const ok=x.lastRun&&x.lastRun.readiness==='PASS'&&x.canaryPass>=1;btn=`<button class="btn sm" data-act="promote" data-arg="${x.id}" ${ok?'':'disabled'}>Promote to primary</button>`;gate=ok?`${x.canaryPass} clean run${x.canaryPass>1?'s':''} in canary`:'needs one clean batch in canary';}
+      if(stt==='deprecated')btn=`<button class="btn sm" data-act="retire" data-arg="${x.id}">Retire</button>`;
+      return `<div class="chip ${x.id===a.id?'sel':''}"><b>${short(x)}</b>upstream ${x.upstreamVersion}, mapping v${x.mapping.version}${btn}${gate?`<span class="gate">${gate}</span>`:''}</div>`;}).join('')}</div>`;
+  const clane=(stt,label)=>`<div class="lane" style="min-height:64px"><h4>${label}</h4>${c.state===stt?`<div class="chip"><b>${b.tool}@${c.version}</b>${stt==='ACTIVE'?`<button class="btn sm" data-act="deprecate" data-arg="${b.tool}">Deprecate contract</button><span class="gate">sunset lands 5 days later</span>`:''}${stt==='DEPRECATED'?`<span class="gate">sunset on day ${c.sunsetDay}</span>`:''}</div>`:''}</div>`;
+  const ready=run?`<div class="ready ${run.readiness}"><b>${run.readiness}</b><span>${esc(run.stages[5].lines[0])}. Last run on day ${run.day}, classification ${run.overall.replace('_',' ').toLowerCase()}.</span></div>`:'';
+  $('#main').innerHTML=`
+   <div class="card">
+     <div class="bhead"><div><h2>${b.tool}</h2>
+       <div class="chips"><span class="pill kind">${b.kind}</span><span class="pill kind">${b.system}</span><span class="pill kind">${esc(b.iface)}</span><span class="pill ${c.state}">contract ${c.version} ${c.state}</span></div></div>
+       <div style="display:flex;gap:8px;flex-wrap:wrap">${standBtn}<button class="btn sm" data-act="call">Call tool now</button></div></div>
+     <div class="tabs">${tabs}</div>
+     ${failNote}
+   </div>
+   <div class="card">
+     <h2>Sanity pipeline <small>${run?`${short(a)}, day ${run.day}`:'not run yet'}</small></h2>
+     <div class="path">${names.map((n,i)=>{const sc=stageClass(i,run);const stx=run&&i<state.reveal?run.stages[i].status:'pending';
+        return `<button class="stn ${sc} ${i===selStage?'sel':''}" data-act="stage" data-arg="${i}"><span class="dot">${symbol[sc]}</span><span class="nm">${n}</span><span class="st">${stx==='pending'?'waiting':stx}</span></button>`;}).join('')}</div>
+     ${st&&state.reveal>=6?`<div class="detail"><h4>${names[selStage]}</h4><ul>${st.lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul></div>`:''}
+     ${state.reveal>=6?ready:''}
+   </div>
+   <div class="card">
+     <h2>Adapter lifecycle <small>tested → canary → primary → deprecated → retired</small></h2>
+     <div class="rail">${lane('tested','Tested')}${lane('canary','Canary')}${lane('primary','Primary')}${lane('deprecated','Deprecated')}${lane('retired','Retired')}</div>
+     <div class="sect rail-gap">Contract lifecycle</div>
+     <div class="rail three">${clane('ACTIVE','Active')}${clane('DEPRECATED','Deprecated')}${clane('SUNSET','Sunset')}</div>
+   </div>
+   <div class="card">
+     <h2>Live call <small>runtime path, same detector, fails closed</small></h2>
+     ${call?`<pre>${esc(JSON.stringify(call,null,2))}</pre>`:`<p class="empty">Press “Call tool now” to see what an agent would receive right now.</p>`}
+   </div>
+   <div class="card"><h2>Active mapping <small>${short(a)}</small></h2><pre>${esc(yaml)}</pre></div>`;
+}
+function renderReviews(){
+  const open=state.reviews.filter(r=>r.status==='open').length;$('#rcount').textContent=open?open+' waiting':'';
+  if(!state.reviews.length){$('#reviews').innerHTML='<p class="empty">Nothing to review. Inject a rename, a new status value, or a date format change, then run a batch.</p>';return;}
+  $('#reviews').innerHTML=state.reviews.slice(0,6).map(r=>{
+    const b=state.bindings.find(x=>x.id===r.bindingId),a=b.adapters.find(x=>x.id===r.adapterId);
+    const live=r.status==='open'?evalCandidate(b,a,withChoices(r)):r.eval;
+    const sb=live.sandbox,sh=live.shadow,allChosen=r.choices.every(c=>c.selected);
+    const gateOk=r.status==='open'&&allChosen&&sb.valid===sb.total&&sh.diffs.length===0;
+    return `<div class="rev"><header><b>${r.id} ${r.bindingId}</b><span class="pill ${r.status}">${r.status}</span></header>
+      <div class="tiny">opened on day ${r.day} by ${r.src}</div>
+      <ul>${r.events.map(e=>`<li>${esc(e)}</li>`).join('')}</ul>
+      <div class="tiny"><b>Candidate mapping changes</b></div>
+      <ul>${r.changes.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>
+      ${r.choices.map((c,i)=>`<div class="kv"><span>${esc(c.target)}: “${esc(c.value)}” means</span>${r.status==='open'?`<select data-act="choose" data-rv="${r.id}" data-i="${i}"><option value="">choose…</option>${c.options.map(o=>`<option ${c.selected===o?'selected':''}>${o}</option>`).join('')}</select>`:`<b>${c.selected||'n/a'}</b>`}</div>`).join('')}
+      <div class="kv"><span>Sandbox replay</span><b>${sb.valid}/${sb.total} valid</b></div>
+      <div class="kv"><span>Shadow vs last-known-good</span><b>${sh.identical}/${sh.compared} identical${sh.skipped?`, ${sh.skipped} new`:''}</b></div>
+      ${r.status==='open'?`<div class="row"><button class="btn primary sm" data-act="approve" data-arg="${r.id}" ${gateOk?'':'disabled'}>Approve</button><button class="btn sm" data-act="reject" data-arg="${r.id}">Reject</button></div>
+      <span class="gate">${gateOk?'gate open: sandbox all valid, no shadow differences':'approval needs every choice made, a fully valid sandbox, and zero shadow differences'}</span>`:''}
+    </div>`;}).join('');
+}
+function renderFeed(){
+  $('#feed').innerHTML=state.log.map(l=>`<li><div class="meta"><span class="pill ${l.cls}">${l.cls.replace('_REQUIRED','').replace('COMPATIBLE','ABSORBED')}</span><span>day ${l.day}</span><span>${esc(l.binding)}</span><span>${l.src}</span></div>${esc(l.msg)}</li>`).join('');
+}
+function render(){renderStats();renderBindings();renderSim();renderMain();renderReviews();renderFeed();}
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-act]');if(!t||t.tagName==='SELECT')return;const act=t.dataset.act,arg=t.dataset.arg;const b=selB();
+  switch(act){
+    case 'run':runBatch(false);state.selStage=null;animate();break;
+    case 'next':runBatch(true);state.selStage=null;animate();break;
+    case 'auto':if(autoTimer){clearInterval(autoTimer);autoTimer=null;}else{autoTimer=setInterval(()=>{runBatch(true);state.selStage=null;animate();},6000);}
+      $('#autoBtn').textContent='Auto: '+(autoTimer?'on (1 day / 6s)':'off');$('#autoBtn').classList.toggle('on',!!autoTimer);break;
+    case 'reset':initState();if(autoTimer){clearInterval(autoTimer);autoTimer=null;$('#autoBtn').textContent='Auto: off';$('#autoBtn').classList.remove('on');}render();break;
+    case 'sel':state.sel=arg;state.selAdapter=null;state.selStage=null;state.reveal=6;render();break;
+    case 'seladapter':state.selAdapter=arg;state.selStage=null;render();break;
+    case 'stage':state.selStage=+arg;render();break;
+    case 'inject':inject(b,arg);render();break;
+    case 'call':state.calls[b.id]=liveCall(b);render();break;
+    case 'standup':standUp(b,arg);state.selStage=null;animate();break;
+    case 'opmap':operatorMap(b,arg);state.selStage=null;animate();break;
+    case 'promote':promote(b,b.adapters.find(x=>x.id===arg));render();break;
+    case 'retire':retire(b,b.adapters.find(x=>x.id===arg));render();break;
+    case 'deprecate':deprecateContract(arg);render();break;
+    case 'approve':approve(state.reviews.find(r=>r.id===arg));state.selStage=null;animate();break;
+    case 'reject':reject(state.reviews.find(r=>r.id===arg));render();break;
+  }
+});
+document.addEventListener('change',e=>{
+  const t=e.target;if(t.dataset&&t.dataset.act==='choose'){const rv=state.reviews.find(r=>r.id===t.dataset.rv);rv.choices[+t.dataset.i].selected=t.value||null;render();}
+});
+
+initState();render();
+})();
+</script>
+</body>
+</html>
