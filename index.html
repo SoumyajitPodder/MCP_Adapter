@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lifecycle controller — Phase 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Lifecycle controller</h1>
+      <p>Phase 1 adapter health for API and file upstreams. Simulated upstreams, real drift logic.</p>
+    </div>
+    <div class="ctrls">
+      <div class="clock"><span>Day</span><b id="day">0</b></div>
+      <button class="btn" data-act="run">Run batch</button>
+      <button class="btn primary" data-act="next">Next day</button>
+      <button class="btn" id="autoBtn" data-act="auto">Auto: off</button>
+      <button class="btn" data-act="reset">Reset</button>
+    </div>
+  </header>
+  <section class="stats" id="stats"></section>
+  <main class="grid">
+    <aside class="col left">
+      <div class="card"><h2>Bindings <small id="bcount"></small></h2><div id="bindings"></div></div>
+      <div class="card"><h2>Simulate an upstream change</h2><div id="sim"></div></div>
+    </aside>
+    <section class="col main" id="main"></section>
+    <aside class="col right">
+      <div class="card"><h2>Review queue <small id="rcount"></small></h2><div id="reviews"></div></div>
+      <div class="card"><h2>Drift and lifecycle log</h2><ul class="feed" id="feed"></ul></div>
+    </aside>
+  </main>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
