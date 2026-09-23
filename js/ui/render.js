@@ -55,6 +55,41 @@ function renderSim() {
     ).join('') + `</div>`;
 }
 
+const READINESS_LABEL = {
+  PASS: ['✓', 'READY'], REVIEW: ['⚠', 'REVIEW'], FAIL: ['✕', 'BLOCKED'],
+  SUNSET: ['•', 'SUNSET'], PENDING: ['·', 'PENDING']
+};
+
+function renderBatchOverview() {
+  const el = $('#batchOverview');
+  if (!state.batchHistory.length) { el.innerHTML = ''; return; }
+  const latest = state.batchHistory[0];
+  const cur = state.batchHistory.find(x => x.n === state.selBatch) || latest;
+
+  const rows = cur.results.map(r => {
+    const [sym, label] = READINESS_LABEL[r.readiness] || ['·', r.readiness];
+    return `<tr><td>${esc(r.tool)}</td><td><span class="pill ${r.readiness}">${sym} ${label}</span></td></tr>`;
+  }).join('');
+
+  const hist = state.batchHistory.slice(0, 12).map(x => {
+    const counts = x.results.reduce((m, r) => { m[r.readiness] = (m[r.readiness] || 0) + 1; return m; }, {});
+    const summary = ['PASS', 'REVIEW', 'FAIL'].map(k => counts[k] ? `${counts[k]} ${READINESS_LABEL[k][1].toLowerCase()}` : null).filter(Boolean).join(', ') || 'no issues';
+    return `<button class="bhistchip ${x.n === cur.n ? 'sel' : ''}" data-act="viewbatch" data-arg="${x.n}">#${x.n} · day ${x.day}<span class="tiny">${summary}</span></button>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="batchhead">
+      <div class="brun">BATCH RUN #${cur.n}</div>
+      <div class="bday">day ${cur.day}${cur.n !== latest.n ? ' · viewing history' : ''}</div>
+    </div>
+    <hr class="brule">
+    <div class="bsummary">${cur.results.length} bindings evaluated<br>${cur.sourcesChecked} API/file sources checked</div>
+    <table class="btable"><tbody>${rows}</tbody></table>
+    <hr class="brule">
+    ${state.batchHistory.length > 1 ? `<div class="bhistrow">${hist}</div>` : ''}
+  `;
+}
+
 function stageClass(i, run) {
   if (!run) return 'pending';
   if (i >= state.reveal) return 'pending';
@@ -85,7 +120,14 @@ function renderMain() {
   const lane = (stt, label) => `<div class="lane"><h4>${label}</h4>${b.adapters.filter(x => x.state === stt).map(x => {
     let btn = '', gate = '';
     if (stt === 'tested') { const ok = x.lastRun && x.lastRun.readiness === 'PASS'; btn = `<button class="btn sm" data-act="promote" data-arg="${x.id}" ${ok ? '' : 'disabled'}>Promote to canary</button>`; gate = ok ? 'contract tests passed' : 'needs a passing batch run'; }
-    if (stt === 'canary') { const ok = x.lastRun && x.lastRun.readiness === 'PASS' && x.canaryPass >= 1; btn = `<button class="btn sm" data-act="promote" data-arg="${x.id}" ${ok ? '' : 'disabled'}>Promote to primary</button>`; gate = ok ? `${x.canaryPass} clean run${x.canaryPass > 1 ? 's' : ''} in canary` : 'needs one clean batch in canary'; }
+    if (stt === 'canary') {
+      const ok = x.lastRun && x.lastRun.readiness === 'PASS' && x.canaryPass >= 1;
+      const promoteBtn = `<button class="btn sm" data-act="promote" data-arg="${x.id}" ${ok ? '' : 'disabled'}>Promote to primary</button>`;
+      const faultBtn = `<button class="btn sm warnish" data-act="breakcanary" data-arg="${x.id}" ${x.fault ? 'disabled' : ''}>${x.fault ? 'Failure queued' : 'Simulate canary failure'}</button>`;
+      btn = promoteBtn + faultBtn;
+      gate = x.fault ? 'a correctness bug is queued — run a batch to see it surface and roll back' : (ok ? `${x.canaryPass} clean run${x.canaryPass > 1 ? 's' : ''} in canary` : 'needs one clean batch in canary');
+    }
+    if (stt === 'rolled_back') { gate = 'failed in canary and was rolled back automatically; the previous primary was never touched'; }
     if (stt === 'deprecated') btn = `<button class="btn sm" data-act="retire" data-arg="${x.id}">Retire</button>`;
     return `<div class="chip ${x.id === a.id ? 'sel' : ''}"><b>${short(x)}</b>upstream ${x.upstreamVersion}, mapping v${x.mapping.version}${btn}${gate ? `<span class="gate">${gate}</span>` : ''}</div>`;
   }).join('')}</div>`;
@@ -111,7 +153,7 @@ function renderMain() {
    </div>
    <div class="card">
      <h2>Adapter lifecycle <small>tested → canary → primary → deprecated → retired</small></h2>
-     <div class="rail">${lane('tested', 'Tested')}${lane('canary', 'Canary')}${lane('primary', 'Primary')}${lane('deprecated', 'Deprecated')}${lane('retired', 'Retired')}</div>
+     <div class="rail">${lane('tested', 'Tested')}${lane('canary', 'Canary')}${lane('rolled_back', 'Rolled back')}${lane('primary', 'Primary')}${lane('deprecated', 'Deprecated')}${lane('retired', 'Retired')}</div>
      <div class="sect rail-gap">Contract lifecycle</div>
      <div class="rail three">${clane('ACTIVE', 'Active')}${clane('DEPRECATED', 'Deprecated')}${clane('SUNSET', 'Sunset')}</div>
    </div>
@@ -153,6 +195,7 @@ function renderFeed() {
 
 export function render() {
   renderStats();
+  renderBatchOverview();
   renderBindings();
   renderSim();
   renderMain();

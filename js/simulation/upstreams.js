@@ -157,10 +157,10 @@ export const INJ = [
     apply: (b, s) => { s.fields = s.fields.filter(f => f.canon !== b.canon[3]); s.colOrder = s.colOrder.filter(c => c !== b.canon[3]); } },
   { id: 'delimiter', label: 'Change the file delimiter', kinds: ['FILE'],
     apply: (b, s) => { s.delimiter = '|'; } },
-  { id: 'sunset', label: 'Announce v2 sunset in 3 days, release v3', kinds: ['REST'], custom: true,
+  { id: 'sunset', label: 'Announce v2 sunset in 6 days, release v3', kinds: ['REST'], custom: true,
     apply: (b) => {
       if (b.upstream.sunsetDay != null) return;
-      b.upstream.sunsetDay = state.day + 3;
+      b.upstream.sunsetDay = state.day + 6;
       b.upstream.versions.v3 = clone(SHAPES[b.tool].v3);
       b.pristine.v3 = clone(SHAPES[b.tool].v3);
     } }

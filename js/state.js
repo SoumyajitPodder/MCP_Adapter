@@ -25,7 +25,9 @@ export function resetState() {
     selStage: null,
     reveal: 6,
     calls: {},
-    bindings: []
+    bindings: [],
+    batchHistory: [],
+    selBatch: null
   };
 }
 

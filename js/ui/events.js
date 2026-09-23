@@ -7,7 +7,7 @@ import { state } from '../state.js';
 import { inject } from '../simulation/upstreams.js';
 import {
   runBatch, liveCall, standUp, operatorMap,
-  promote, retire, deprecateContract, approve, reject
+  promote, retire, deprecateContract, approve, reject, injectCanaryFault
 } from '../core/lifecycle.js';
 import { render, animate } from './render.js';
 
@@ -48,6 +48,8 @@ export function bindEvents({ onReset }) {
       case 'deprecate': deprecateContract(arg); render(); break;
       case 'approve': approve(state.reviews.find(r => r.id === arg)); state.selStage = null; animate(); break;
       case 'reject': reject(state.reviews.find(r => r.id === arg)); render(); break;
+      case 'breakcanary': injectCanaryFault(b, b.adapters.find(x => x.id === arg)); render(); break;
+      case 'viewbatch': state.selBatch = +arg; render(); break;
     }
   });
 

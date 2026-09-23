@@ -138,6 +138,28 @@ export function assess(b, a, src) {
   return { s, det, cls, review };
 }
 
+// Simulates "the new adapter is worse": a candidate that passed the
+// sandbox check when it was standing up (or looked fine on an earlier
+// canary run) can still carry a correctness bug that only shows up under
+// continued running. This corrupts one record's status value after
+// translation, so canonical validation and the last-known-good regression
+// catch it in stage 5 — exactly as they would catch a real mapping bug.
+// The smoke test (stage 4) still passes, since translate() itself
+// succeeds; it's the deeper check that finds the problem.
+function applyCanaryFault(b, t) {
+  if (!t.out.length) return t;
+  const out = t.out.map((o, i) => i === 0 ? Object.assign({}, o, { [b.canon[1]]: 'WRONG_' + o[b.canon[1]] }) : o);
+  return { out, errs: t.errs };
+}
+
+// Marks a canary adapter to carry the fault above on its next run. Only
+// works on an adapter currently in canary, and only once.
+export function injectCanaryFault(b, a) {
+  if (a.state !== 'canary' || a.fault) return;
+  a.fault = true;
+  log(b, 'SYSTEM', `simulated: injected a correctness bug into ${a.id.split('/')[1]} (canary) — will surface on the next run`, 'sim');
+}
+
 // Upstream versions nobody has an active (tested/canary/primary) adapter
 // for yet — surfaced in the version-check stage so a new release doesn't
 // go unnoticed.
@@ -192,6 +214,7 @@ export function runPipeline(b, a, src = 'batch') {
     stages.push({ name: 'Smoke test', status: 'skip', lines: ['skipped: nothing to translate'] });
   } else {
     t = translate(a.mapping, det.records, cls.ctx);
+    if (a.fault) t = applyCanaryFault(b, t);
     smokeOk = t.errs.length === 0;
     const lines = [`${t.out.length}/${det.records.length} sample records translated`];
     t.errs.slice(0, 3).forEach(e => lines.push(`${e.code} on ${e.field}: ${e.detail}`));
@@ -225,12 +248,25 @@ export function runPipeline(b, a, src = 'batch') {
   let readiness; const reasons = [];
   if (cls.overall === 'COMPATIBLE' && smokeOk && valOk) { readiness = 'PASS'; reasons.push('all checks passed'); }
   else if (cls.overall === 'REVIEW_REQUIRED') { readiness = 'REVIEW'; reasons.push(A.review && A.review.status === 'rejected' ? 'review was rejected, migration needed' : 'waiting on human review or migration'); }
-  else { readiness = 'FAIL'; reasons.push(cls.overall === 'COMPATIBLE' ? 'unexplained failure, treated as UNKNOWN and blocked' : 'breaking or unknown change, traffic fails closed'); }
+  else {
+    readiness = 'FAIL';
+    if (cls.overall === 'COMPATIBLE' && a.fault) reasons.push('candidate produced incorrect output not explained by any upstream drift; treated as a regression and blocked');
+    else reasons.push(cls.overall === 'COMPATIBLE' ? 'unexplained failure, treated as UNKNOWN and blocked' : 'breaking or unknown change, traffic fails closed');
+  }
   stages.push({ name: 'Readiness', status: readiness === 'PASS' ? 'pass' : readiness === 'REVIEW' ? 'warn' : 'fail', lines: reasons });
 
   const run = { day: state.day, adapterId: a.id, stages, overall: cls.overall, readiness };
   a.lastRun = run;
-  if (a.state === 'canary' && readiness === 'PASS') a.canaryPass++;
+  if (a.state === 'canary' && readiness === 'PASS') {
+    a.canaryPass++;
+  } else if (a.state === 'canary' && readiness === 'FAIL') {
+    // Rollback: the candidate never becomes primary. Whatever was already
+    // serving stays exactly as it was — this is the whole point of a
+    // canary stage.
+    a.state = 'rolled_back';
+    const p = primary(b);
+    log(b, 'BREAKING', `${a.id.split('/')[1]} failed in canary and was rolled back automatically; ${p ? p.id.split('/')[1] + ' remains primary, unaffected' : 'no primary is currently serving'}`);
+  }
   return run;
 }
 
@@ -242,7 +278,8 @@ export function health(b) {
 }
 
 // The daily proactive run: sunset any contract whose window has elapsed,
-// then run the sanity pipeline against every non-frozen adapter.
+// then run the sanity pipeline against every non-frozen adapter, and
+// record a one-line-per-binding summary (the "batch run overview").
 export function runBatch(advance) {
   if (advance) state.day++;
   Object.entries(CONTRACTS).forEach(([t, c]) => {
@@ -251,11 +288,16 @@ export function runBatch(advance) {
       log(null, 'SYSTEM', `contract ${t}@${c.version} reached SUNSET; tool is no longer served`);
     }
   });
+  const results = [];
   state.bindings.forEach(b => {
-    if (CONTRACTS[b.tool].state === 'SUNSET') return;
+    if (CONTRACTS[b.tool].state === 'SUNSET') { results.push({ bindingId: b.id, tool: b.tool, readiness: 'SUNSET' }); return; }
     b.adapters.filter(a => ['tested', 'canary', 'primary'].includes(a.state)).forEach(a => runPipeline(b, a));
+    results.push({ bindingId: b.id, tool: b.tool, readiness: health(b) });
   });
   state.batches++;
+  state.batchHistory.unshift({ n: state.batches, day: state.day, results, sourcesChecked: state.bindings.length });
+  if (state.batchHistory.length > 20) state.batchHistory.pop();
+  state.selBatch = null; // always land on the run that just completed
 }
 
 // The runtime path: same detector, same classifier, but fails closed
