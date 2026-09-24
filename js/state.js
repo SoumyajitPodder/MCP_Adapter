@@ -27,7 +27,9 @@ export function resetState() {
     calls: {},
     bindings: [],
     batchHistory: [],
-    selBatch: null
+    selBatch: null,
+    clockMinutes: 0,
+    speed: 1
   };
 }
 

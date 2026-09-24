@@ -1,6 +1,7 @@
-// Wires DOM events (button clicks, the review dropdowns) to the core
-// actions and the simulator, then re-renders. This is the only file that
-// listens on the document; render.js only ever produces markup.
+// Wires DOM events (button clicks, the review dropdowns, the speed
+// control) to the core actions and the simulator, then re-renders. This is
+// the only file that listens on the document; render.js only ever
+// produces markup.
 
 import { $ } from './dom.js';
 import { state } from '../state.js';
@@ -9,9 +10,48 @@ import {
   runBatch, liveCall, standUp, operatorMap,
   promote, retire, deprecateContract, approve, reject, injectCanaryFault
 } from '../core/lifecycle.js';
-import { render, animate } from './render.js';
+import { render, animate, renderClock } from './render.js';
 
 let autoTimer = null;
+
+// The clock ticks every 100ms of real time; how many simulated minutes
+// that represents depends on the selected speed. At 1x, a full simulated
+// day takes BASE_DAY_MS — the same pace the fixed 6-second auto-run used
+// before there was a speed control.
+const TICK_MS = 100;
+const BASE_DAY_MS = 6000;
+
+function minutesPerTick() {
+  const dayMs = BASE_DAY_MS / state.speed;
+  return 1440 / (dayMs / TICK_MS);
+}
+
+function tick() {
+  state.clockMinutes += minutesPerTick();
+  if (state.clockMinutes >= 1440) {
+    runBatch(true);
+    state.selStage = null;
+    animate();
+  } else {
+    renderClock();
+  }
+}
+
+function updateAutoBtn() {
+  $('#autoBtn').textContent = 'Auto: ' + (autoTimer ? `on (${state.speed}×)` : 'off');
+  $('#autoBtn').classList.toggle('on', !!autoTimer);
+}
+
+function startAuto() {
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = setInterval(tick, TICK_MS);
+  updateAutoBtn();
+}
+
+function stopAuto() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  updateAutoBtn();
+}
 
 // onReset is passed in by app.js rather than imported directly, so this
 // file never needs to import the composition root.
@@ -25,15 +65,10 @@ export function bindEvents({ onReset }) {
     switch (act) {
       case 'run': runBatch(false); state.selStage = null; animate(); break;
       case 'next': runBatch(true); state.selStage = null; animate(); break;
-      case 'auto':
-        if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
-        else { autoTimer = setInterval(() => { runBatch(true); state.selStage = null; animate(); }, 6000); }
-        $('#autoBtn').textContent = 'Auto: ' + (autoTimer ? 'on (1 day / 6s)' : 'off');
-        $('#autoBtn').classList.toggle('on', !!autoTimer);
-        break;
+      case 'auto': autoTimer ? stopAuto() : startAuto(); break;
       case 'reset':
+        stopAuto();
         onReset();
-        if (autoTimer) { clearInterval(autoTimer); autoTimer = null; $('#autoBtn').textContent = 'Auto: off'; $('#autoBtn').classList.remove('on'); }
         render();
         break;
       case 'sel': state.sel = arg; state.selAdapter = null; state.selStage = null; state.reveal = 6; render(); break;
@@ -59,6 +94,11 @@ export function bindEvents({ onReset }) {
       const rv = state.reviews.find(r => r.id === t.dataset.rv);
       rv.choices[+t.dataset.i].selected = t.value || null;
       render();
+    }
+    if (t.id === 'speedSel') {
+      state.speed = +t.value;
+      if (autoTimer) startAuto(); // restart at the new pace
+      renderClock();
     }
   });
 }

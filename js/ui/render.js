@@ -16,6 +16,22 @@ const selB = () => state.bindings.find(b => b.id === state.sel);
 const selA = b => b.adapters.find(a => a.id === state.selAdapter && a.state !== 'retired') || primary(b);
 const short = a => a.id.split('/')[1];
 
+const pct = n => Math.round(n * 100);
+const confColor = score => score >= 0.8 ? 'var(--pass)' : score >= 0.6 ? 'var(--review)' : 'var(--fail)';
+
+// Renders the classifier's 0.5 name + 0.2 type + 0.3 value-shape breakdown
+// as a bar chart, so a probable-rename review shows its reasoning instead
+// of just a bare "confidence 0.72" number.
+function confBlock(rn) {
+  return `<div class="confblock">
+    <div class="conflabel">Mapping confidence — "${esc(rn.from)}" → "${esc(rn.to)}"</div>
+    <div class="confbar"><div class="conffill" style="width:${pct(rn.score)}%;background:${confColor(rn.score)}"></div><span class="confpct">${pct(rn.score)}%</span></div>
+    <div class="confrow"><span>Name similarity</span><div class="confbar sm"><div class="conffill" style="width:${pct(rn.name)}%"></div></div><b>${pct(rn.name)}%</b></div>
+    <div class="confrow"><span>Type compatibility</span><div class="confbar sm"><div class="conffill" style="width:${pct(rn.type)}%"></div></div><b>${pct(rn.type)}%</b></div>
+    <div class="confrow"><span>Value shape</span><div class="confbar sm"><div class="conffill" style="width:${pct(rn.value)}%"></div></div><b>${pct(rn.value)}%</b></div>
+  </div>`;
+}
+
 // Reveals the sanity pipeline's six stages one at a time so a viewer can
 // follow the sequence, instead of the whole pipeline appearing at once.
 export function animate() {
@@ -25,10 +41,27 @@ export function animate() {
   animTimer = setInterval(() => { state.reveal++; if (state.reveal >= 6) clearInterval(animTimer); render(); }, 170);
 }
 
+function fmtClock(mins) {
+  const total = Math.floor(mins);
+  const h = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// Updates just the day/time/speed readouts. Called on every full render(),
+// and also called on its own (cheaply, no full render) by the auto-run
+// ticker between day boundaries, so the clock can animate smoothly without
+// re-rendering the whole page dozens of times a second.
+export function renderClock() {
+  $('#day').textContent = state.day;
+  $('#time').textContent = fmtClock(state.clockMinutes);
+  const sel = $('#speedSel');
+  if (sel) sel.value = String(state.speed);
+}
+
 function renderStats() {
   const h = state.bindings.filter(b => health(b) === 'PASS').length;
   const open = state.reviews.filter(r => r.status === 'open').length;
-  $('#day').textContent = state.day;
   $('#stats').innerHTML = [
     [`${h}/${state.bindings.length}`, 'bindings passing'],
     [open, 'reviews waiting'],
@@ -51,7 +84,7 @@ function renderSim() {
   const b = selB();
   $('#sim').innerHTML = `<p class="tiny" style="margin-bottom:8px">Changes apply to <b>${b.tool}</b> (${b.kind}). Inject one, then run a batch.</p><div class="sim-grid">` +
     INJ.filter(i => i.kinds.includes(b.kind)).map(i =>
-      `<button class="btn sm ${i.custom ? 'warnish' : ''}" data-act="inject" data-arg="${i.id}" ${i.id === 'sunset' && b.upstream.sunsetDay != null ? 'disabled' : ''}>${i.label}</button>`
+      `<button class="btn sm ${i.custom ? 'warnish' : ''}" data-act="inject" data-arg="${i.id}" ${i.custom && b.upstream.sunsetDay != null ? 'disabled' : ''}>${i.label}</button>`
     ).join('') + `</div>`;
 }
 
@@ -178,6 +211,7 @@ function renderReviews() {
       <ul>${r.events.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
       <div class="tiny"><b>Candidate mapping changes</b></div>
       <ul>${r.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+      ${(r.renames && r.renames.length) ? r.renames.map(rn => confBlock(rn)).join('') : ''}
       ${r.choices.map((c, i) => `<div class="kv"><span>${esc(c.target)}: "${esc(c.value)}" means</span>${r.status === 'open' ? `<select data-act="choose" data-rv="${r.id}" data-i="${i}"><option value="">choose…</option>${c.options.map(o => `<option ${c.selected === o ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<b>${c.selected || 'n/a'}</b>`}</div>`).join('')}
       <div class="kv"><span>Sandbox replay</span><b>${sb.valid}/${sb.total} valid</b></div>
       <div class="kv"><span>Shadow vs last-known-good</span><b>${sh.identical}/${sh.compared} identical${sh.skipped ? `, ${sh.skipped} new` : ''}</b></div>
@@ -194,6 +228,7 @@ function renderFeed() {
 }
 
 export function render() {
+  renderClock();
   renderStats();
   renderBatchOverview();
   renderBindings();

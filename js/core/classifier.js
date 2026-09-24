@@ -8,22 +8,25 @@
 
 import { norm, nameSim, inferFmt, SEV } from './utils.js';
 
-// Confidence score (0..1) for "is `path` the field that replaced `f`":
-//   0.5 * name similarity + 0.2 * type match + 0.3 * value-shape match
+// Confidence score for "is `path` the field that replaced `f`", returned as
+// the blended score plus its three components so the UI can show the
+// breakdown, not just the final number:
+//   score = 0.5 * name similarity + 0.2 * type match + 0.3 * value-shape match
 export function scoreCandidate(f, path, records) {
   const name = Math.max(nameSim(f.src, path), nameSim(f.target, path));
   const vals = records.map(r => r[path]).filter(v => v !== undefined);
-  const t = vals.length
+  const type = vals.length
     ? (vals.every(v => typeof v === 'string') ? 1 : (vals.every(v => typeof v === 'number') && f.transform === 'identity' ? 0.7 : 0))
     : 0;
-  let val = 0.5;
+  let value = 0.5;
   if (f.transform === 'enum') {
     const known = [...Object.keys(f.values), ...Object.values(f.values)];
-    val = vals.length ? vals.filter(v => known.some(k => nameSim(String(v), k) >= 0.8)).length / vals.length : 0;
+    value = vals.length ? vals.filter(v => known.some(k => nameSim(String(v), k) >= 0.8)).length / vals.length : 0;
   } else if (f.transform === 'datetime') {
-    val = vals.length && vals.every(v => inferFmt(v) !== 'OTHER') ? 1 : 0;
+    value = vals.length && vals.every(v => inferFmt(v) !== 'OTHER') ? 1 : 0;
   }
-  return +(0.5 * name + 0.2 * t + 0.3 * val).toFixed(2);
+  const score = +(0.5 * name + 0.2 * type + 0.3 * value).toFixed(2);
+  return { score, name: +name.toFixed(2), type: +type.toFixed(2), value: +value.toFixed(2) };
 }
 
 export function classify(b, a, det) {
@@ -39,13 +42,17 @@ export function classify(b, a, det) {
     const f = bySrc.get(r.path);
     if (!f) { items.push({ event: r, cls: 'COMPATIBLE', tier: 'A', reason: 'unmapped field removed, no impact' }); return; }
     let best = null;
-    added.forEach(ad => { if (used.has(ad.path)) return; const sc = scoreCandidate(f, ad.path, recs); if (!best || sc > best.sc) best = { ad, sc }; });
+    added.forEach(ad => { if (used.has(ad.path)) return; const sc = scoreCandidate(f, ad.path, recs); if (!best || sc.score > best.sc.score) best = { ad, sc }; });
     if (best && norm(best.ad.path) === norm(r.path)) {
       used.add(best.ad.path); ctx.alias[r.path] = best.ad.path;
       items.push({ event: r, cls: 'COMPATIBLE', tier: 'A', alias: { from: r.path, to: best.ad.path }, reason: `case-style rename, aliased "${r.path}" → "${best.ad.path}"` });
-    } else if (best && best.sc >= 0.6) {
+    } else if (best && best.sc.score >= 0.6) {
       used.add(best.ad.path);
-      items.push({ event: r, cls: 'REVIEW_REQUIRED', target: f.target, rename: { from: r.path, to: best.ad.path, score: best.sc }, reason: `probable rename "${r.path}" → "${best.ad.path}" (confidence ${best.sc})` });
+      items.push({
+        event: r, cls: 'REVIEW_REQUIRED', target: f.target,
+        rename: { from: r.path, to: best.ad.path, score: best.sc.score, name: best.sc.name, type: best.sc.type, value: best.sc.value },
+        reason: `probable rename "${r.path}" → "${best.ad.path}" (confidence ${best.sc.score})`
+      });
     } else {
       items.push({ event: r, cls: 'BREAKING', reason: `required source "${r.path}" is gone and no confident replacement exists` });
     }

@@ -17,9 +17,19 @@
       <p>Phase 1 adapter health for API and file upstreams. Simulated upstreams, real drift logic.</p>
     </div>
     <div class="ctrls">
-      <div class="clock"><span>Day</span><b id="day">0</b></div>
+      <div class="clock">
+        <span>Day</span><b id="day">0</b>
+        <span class="sep">·</span>
+        <span>Time</span><b id="time">00:00</b>
+      </div>
       <button class="btn" data-act="run">Run batch</button>
       <button class="btn primary" data-act="next">Next day</button>
+      <select id="speedSel" class="speedsel" title="How fast simulated time passes in auto-run">
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
       <button class="btn" id="autoBtn" data-act="auto">Auto: off</button>
       <button class="btn" data-act="reset">Reset</button>
     </div>

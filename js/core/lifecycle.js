@@ -77,16 +77,16 @@ export function proposeVersion(b, oldMapping, s) {
   const paths = Object.keys(pathsOf(records));
   const pairs = [];
   oldMapping.fields.forEach(f => paths.forEach(p => pairs.push({ f, p, sc: scoreCandidate(f, p, records) })));
-  pairs.sort((x, y) => y.sc - x.sc);
+  pairs.sort((x, y) => y.sc.score - x.sc.score);
   const pickF = new Map(), usedP = new Set();
-  pairs.forEach(x => { if (pickF.has(x.f.target) || usedP.has(x.p)) return; if (x.sc >= 0.6) { pickF.set(x.f.target, x); usedP.add(x.p); } });
+  pairs.forEach(x => { if (pickF.has(x.f.target) || usedP.has(x.p)) return; if (x.sc.score >= 0.6) { pickF.set(x.f.target, x); usedP.add(x.p); } });
   const m = clone(oldMapping); m.version = 1; m.unwrap = unwrap; m.coerce = false;
   const notes = [], unresolved = [];
   if (unwrap) notes.push(`unwrap envelope "${unwrap}"`);
   m.fields.forEach(f => {
     const pick = pickF.get(f.target);
-    if (!pick) { const best = pairs.filter(x => x.f.target === f.target)[0]; unresolved.push(`${f.target}: no confident source (best guess "${best ? best.p : 'none'}" scored ${best ? best.sc : 0})`); return; }
-    notes.push(`${f.target}: "${f.src}" → "${pick.p}" (confidence ${pick.sc})`); f.src = pick.p;
+    if (!pick) { const best = pairs.filter(x => x.f.target === f.target)[0]; unresolved.push(`${f.target}: no confident source (best guess "${best ? best.p : 'none'}" scored ${best ? best.sc.score : 0})`); return; }
+    notes.push(`${f.target}: "${f.src}" → "${pick.p}" (confidence ${pick.sc.score})`); f.src = pick.p;
     if (f.transform === 'datetime') { const fm = inferFmt(records[0][f.src]); f.format = fm; notes.push(`${f.target}: datetime format ${fm}`); }
     if (f.transform === 'enum') {
       const opts = contractEnum(b, f.target);
@@ -128,6 +128,7 @@ export function assess(b, a, src) {
       review = {
         id: 'R' + (state.reviews.length + 1), bindingId: b.id, adapterId: a.id, sig, day: state.day, status: 'open',
         events: cls.items.filter(i => SEV[i.cls] >= 1 && !i.sunset).map(i => i.reason),
+        renames: ri.filter(i => i.rename).map(i => i.rename),
         candidate: P.mapping, changes: P.changes, choices: P.choices, conf: P.conf, src
       };
       review.eval = evalCandidate(b, a, withChoices(review));
@@ -281,7 +282,7 @@ export function health(b) {
 // then run the sanity pipeline against every non-frozen adapter, and
 // record a one-line-per-binding summary (the "batch run overview").
 export function runBatch(advance) {
-  if (advance) state.day++;
+  if (advance) { state.day++; state.clockMinutes = 0; }
   Object.entries(CONTRACTS).forEach(([t, c]) => {
     if (c.state === 'DEPRECATED' && c.sunsetDay != null && state.day >= c.sunsetDay) {
       c.state = 'SUNSET';
