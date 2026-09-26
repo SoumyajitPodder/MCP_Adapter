@@ -7,6 +7,180 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-26 — Session 15: M5 (golden tasks, §6) design proposal
+
+M3 was pushed (`1789c52` on `origin/shaswat_changes`). Status of this section: **`pending`**, except D-072. Nothing here is implemented. Implementation needs owner approval of the design and answers to M5-Q1–Q6.
+
+| ID | Decision | Status |
+| --- | --- | --- |
+| D-072 | No LLM in M5 for now. Answers are checked deterministically against a structured final answer; LLM stand-in agents and the LLM judge (§6.5) come later. Deviates from §6.5. | approved by owner |
+
+### What exists and what doesn't
+
+- **Exists:** the real §8/§9/§7 pipeline and its fakes (`StaticTokenVerifier`, `SentinelSecretManager`, the memory stores), policies, and the synthetic catalog.
+  - Also `FaultyConnector`, synthetic samples, and `rfc8785` (usable for argument matching).
+- **Missing:**
+  - **Tool descriptions and input schemas** (R-020): the contract format is a flat output field list. §6 exists mainly to catch description changes (§6.7), so it needs them.
+  - **Agents under test** (R-012): no agent, prompt or orchestrator exists in either repo.
+  - **Connectors, translation and mapping** (Romik, §1–4): there is nothing to put stub backends *behind*.
+  - **An LLM:** none, by decision (D-072).
+
+What that means for the brief's goals:
+- M5 builds the whole suite: task files, sandbox, the four assertion layers (the answer layer deterministic), selection, report, gate, and a way for the agent teams' own agents to plug in (item 3).
+- Catching a *misleading description* (§6.11) and the mutation canaries (§6.8) need an agent that actually reads descriptions and tool output: a real one plugged in by its team, or an LLM stand-in later. A scripted agent can't react to either. Until one is plugged in, the suite proves the machinery, not agent behavior.
+
+### M5 · Deterministic suite (no LLM)
+
+**Package:** `adapter_verify/golden/`, with the usual `domain/`, `ports.py`, `fakes.py`, `adapters/`, `service.py`.
+
+**1. Task files** (§6.1)
+- Location: `golden_tasks/<agent_id>/<task_id>.yaml`. Loaded with `safe_load`, then validated through JSON (D-048).
+- Model: frozen, strict, closed. Fields are the brief's, plus:
+  - `expect_calls[].args_match: exact | subset` (default `exact`). Arguments are compared in RFC 8785 form, so key order and `1` vs `1.0` don't cause false failures.
+  - `ordered: bool` (default `true`): `expect_calls` must appear as an ordered subsequence of the actual calls. Extra calls are allowed unless `exact_calls: true`.
+  - `expect_state` is a closed model: `writes_performed`, `calls_by_tool`.
+  - `fixtures[].payload` must be a `*.synthetic.json` file under `fixtures/golden/` (the same naming rule as the M4 samples).
+  - `expect_answer` is structured (D-072): `fields` (expected values; `null` means "must be null or absent"), `match: exact | subset` (default `subset`), and an optional `rubric` text kept for the later judge. Each agent declares its final-answer shape in `golden_tasks/<agent_id>/answer.schema.json` (e.g. `order_status`, `promised_date`); an answer that doesn't validate fails the answer layer.
+- `golden lint` (CI):
+
+| Rule ID | Fails when |
+| --- | --- |
+| `GOLDEN_SCHEMA` | the file doesn't validate |
+| `GOLDEN_FILE_NAME_MISMATCH` | file name ≠ `task_id`, or directory ≠ `agent` |
+| `GOLDEN_DUPLICATE_ID` | two tasks share a `task_id` |
+| `GOLDEN_UNKNOWN_TOOL` / `GOLDEN_UNKNOWN_VERSION` | a tool or version is missing from the catalog |
+| `GOLDEN_UNKNOWN_AGENT` | the agent has no policy |
+| `GOLDEN_TOOL_NOT_GRANTED` | an expected call is not granted to the agent (the task could never pass) |
+| `GOLDEN_EXPECT_CONFLICT` | a tool is both expected and forbidden |
+| `GOLDEN_FIXTURE_MISSING` / `GOLDEN_FIXTURE_NOT_SYNTHETIC` | the fixture file is absent or not marked synthetic |
+| `GOLDEN_ANSWER_FIELD_UNKNOWN` | `expect_answer.fields` names a field the agent's answer schema doesn't have |
+| `GOLDEN_THRESHOLD` | `threshold > runs`, or a task with writes (`expect_state.writes_performed > 0` or a mutating/destructive expected call) doesn't require `runs` of `runs` (§6.6) |
+
+**2. Sandbox** (§6.2)
+- Each run drives the **real pipeline**:
+  - `ObservedEntry` → `Authenticator` (a `StaticTokenVerifier` token for the task's agent);
+  - → `AccessStage` (the real `policies/`);
+  - → `IdempotencyStage` (memory store);
+  - → a **fixture backend** as terminal.
+- So golden runs also exercise §7–§9. A task can fail because the agent was denied, which is behavior worth catching.
+- **Fixture backend:** an in-process `Next` that serves the task's fixture per tool (canonical output), counts calls per tool, and counts writes (a mutating/destructive call it acknowledged). Unmatched calls return `UPSTREAM_UNAVAILABLE` (`NOT_SENT`).
+  - Deviation from §6.2: there's no per-interface stub (HTTP/SOAP/file/queue) yet, because no connector exists to talk to one.
+  - When Romik's connectors land, fixtures switch to upstream payloads (`source_id` is already in the task format) and the stubs become protocol-level, one per pilot interface kind. Rejected now: localhost HTTP stubs with nothing to call them.
+- **Secrets:** `SentinelSecretManager` is bound. A run fails with `SENTINEL_LEAK` if a sentinel shows up in:
+  - the transcript or any tool result shown to the agent;
+  - anything sent to an external agent (item 3);
+  - any sink (the existing sentinel scan).
+- **Egress** (§15, M5-Q3): an in-process guard wraps `socket.connect`/`getaddrinfo` for the whole run and allows nothing. Any attempt fails the run with `EGRESS_BLOCKED`, naming the host. (An external agent runs as a child process, so its own network use is its team's concern; the container option in the table below would cover it.)
+
+**3. Harness port** (§6.3)
+```python
+class AgentHarness(Protocol):
+    identity: AgentIdentity  # agent_id, harness_id, model, prompt_digest
+    async def run(self, prompt: str, tools: Sequence[ToolView],
+                  call_tool: ToolCaller, limits: RunLimits) -> Transcript: ...
+```
+- `ToolView`: name, version, description and input schema. The list comes from `Authenticator.list_tools` (the real §9 `tools/list` point), so an agent only sees what it could call.
+- `ToolCaller`: goes through the sandbox pipeline and returns the agent-facing result (delivery stripped).
+- `RunLimits`: maximum tool calls and wall-clock time (plus a token budget once an LLM is involved). Crossing one gives `BUDGET_EXCEEDED`, a hard failure, never a retry.
+- `Transcript`: tool calls with results, the structured final answer, and whatever the agent reports about itself (model, version, token usage).
+- **Adapters:**
+  - `ScriptedAgent` (fake): replays fixed tool calls and a fixed answer. Drives the tests and self-tests.
+  - `ExternalAgent`: runs an agent command as a child process and talks JSON lines over stdin/stdout: `task` (prompt + tool views) → agent sends `call` → harness replies `result` → … → agent sends `answer`. Messages are strict Pydantic models; anything else, a timeout or a non-zero exit is `HARNESS_ERROR`. This is how the agent teams plug in their real agents, whatever they're built with. Configured in `golden_tasks/<agent_id>/agent.yaml` (command, limits). Tested against a scripted child process.
+
+**4. Assertions** (§6.4)
+- These are pure functions over (task, transcript, fixture-backend state), run in order. The first failing layer short-circuits:
+  1. **calls**: tool, version, arguments;
+  2. **sequence**: order, and no forbidden tool. A *denied* attempt at a forbidden tool still fails: the attempt is the behavior;
+  3. **state**;
+  4. **answer**: the structured answer validates against the agent's schema and matches `expect_answer.fields` (D-072).
+- **Run outcome:** `PASS` · `FAIL(layer, expected, actual)` · `ERROR(kind)` for harness or infrastructure (`BUDGET_EXCEEDED`, `EGRESS_BLOCKED`, `SENTINEL_LEAK`, `HARNESS_ERROR`).
+- `ERROR` counts as a failed run. It's never retried and never quarantined as flakiness.
+
+**5. Thresholds, verdicts, quarantine** (§6.6, R-013)
+- **Task verdict:** `PASS` when passing runs ≥ `threshold`, otherwise `FAIL`. With a scripted agent every run is identical; `runs`/`threshold` matter once real agents are plugged in.
+- **Quarantine is reported, never applied automatically.** When a task fails its threshold twice in a row on the same input digest, the report says `QUARANTINE_RECOMMENDED`.
+  - A person adds it to `golden_tasks/quarantine.yaml` in a reviewed PR, with owner, reason and date. CODEOWNERS applies.
+  - While quarantined, a task is reported but doesn't gate. **Every tool it touches is blocked from promotion** until it's fixed or `quarantine.yaml` carries an explicit waiver (R-013). The PR history is the audit trail.
+  - Rejected: automatic quarantine (the "silently weakens the gate" failure mode of R-013).
+
+**6. What runs when** (§6.7)
+- Each task has an **input digest**: the tool definitions it touches (schema and description digested separately), its fixtures, and the agent config (command, answer schema, and the model the agent reports, if any).
+- `golden run --changed-since <base-ref>` maps the changed files (`git diff --name-only`) to tasks:
+
+| Changed | Tasks |
+| --- | --- |
+| tool definition (schema or description) | tasks touching that tool |
+| fixture or source mapping | tasks using it |
+| agent config or prompt | that agent's tasks |
+| agent config or reported model version | that agent's tasks |
+| adapter version | full suite for affected agents (manual `--all` until Romik's versioning exists) |
+
+- Change detection uses the base branch. That's fine here, unlike D-054: nothing is being *pinned*, only selected. A scheduled nightly job runs `--all` plus the canaries.
+
+**7. Results and report** (§6.10)
+- `ResultStore` port. The Phase 1 adapter writes `golden-results/<run_id>.json` (a CI artifact) containing:
+  - run ID, git SHA, agent identities (and model versions they report), limits;
+  - per-task, per-run outcomes, input digests, token usage where reported;
+  - transcripts (synthetic data only).
+- A Markdown report goes to stdout, `--report` and `$GITHUB_STEP_SUMMARY`, the same as M4. Each failure shows:
+  - the failing layer, and expected vs actual;
+  - **which inputs changed since the base**, with a unified diff of the tool description when it changed. This is what makes the cause obvious (§6.11).
+- Rejected for Phase 1:
+  - a Postgres results table: CI would need database credentials (the R-014 concern) for history that CI artifacts and `quarantine.yaml` already cover;
+  - transcripts in the payload store: its adapter doesn't exist (§15).
+
+**8. Gate** (§6.9)
+- `golden gate --tool T --version V --results <file>`:
+  - exits 0 only if every non-quarantined task touching `T@V` passed in that results file, at the current input digests;
+  - exits 1 on failure or a stale digest, 2 when a quarantine without a waiver blocks, 3 on a tool error.
+- Romik's lifecycle calls it on `draft → tested` (full suite for affected agents) and `tested → canary`. A description-only edit re-runs the affected tasks with no version bump.
+- The hook-up to his `promote()` is pending Romik (R-025): his prototype is JS and has no `draft` state.
+
+**9. CLI:** `golden lint`, `golden run [--task|--tool|--agent|--all|--changed-since REF] [--report]`, `golden gate`. Later: `golden canaries`, `golden calibrate`, `golden scaffold --correlation-id` (X-7).
+
+**10. Acceptance (offline, what M5 can prove without an agent that reads)**
+- Every lint rule has a firing and a non-firing fixture.
+- With `ScriptedAgent`, each assertion layer and each `ERROR` kind is produced on purpose, and the report names the failing layer with expected vs actual.
+- A task whose tool description changed on the branch is selected by `--changed-since`, and its report shows the description diff (the §6.11 report requirement, minus the agent).
+- `ExternalAgent` passes and fails tasks through a scripted child process, including a timeout and a malformed message.
+- `golden gate` exit codes for pass, fail, stale digest and unwaived quarantine.
+- Pilot tasks for the three read-only tools run green in CI (`golden run --all` with scripted stand-ins, marked as such in the report).
+
+### Later · agents that read (not in this milestone)
+
+These wait on real agents or on an LLM decision (D-072). The ports above don't change.
+- **LLM stand-in agents:** a generic tool-use loop behind `AgentHarness`, per-agent prompt and pinned model; needs a provider decision and one SDK dependency.
+- **LLM judge** (§6.5): an optional layer after the deterministic answer check, for tone or phrasing, with the calibration set from §6.5.
+- **Mutation canaries** (§6.8): `ENUM_SWAP`, `DESCRIPTION_MISLEAD` (hand-written), `DROP_OPTIONAL_FIELD`, `TIMEZONE_SHIFT`, plus Romik's drift injectors (R-028). Each reported `CAUGHT`, `MISSED` or `NO_COVERAGE`. They only make sense against an agent that reads.
+- **§6.11 acceptance:** a misleading `order.get` description fails a task and the report shows why; every canary caught.
+
+### Options considered
+
+| Decision | Options | Recommendation |
+| --- | --- | --- |
+| Answer check | A. Structured final answer, deterministic. B. LLM judge. C. Both | A now (D-072); B as an optional extra layer later |
+| Agents under test (M5-Q1) | A. The teams' own agents via `ExternalAgent`. B. In-repo stand-ins. C. A, with B later if teams can't provide agents yet | C |
+| Egress (M5-Q3) | A. In-process socket guard. B. Container with no network. C. A always, plus B in CI | A now; B when the CI runner setup is decided (§15) |
+| Results (M5-Q5) | A. JSON artifacts plus a committed `quarantine.yaml`. B. Postgres (non-production). C. Artifacts plus previous-run download via the API | A |
+| Stub backends | A. In-process fixture terminal now. B. Protocol stubs now | A, until connectors exist |
+
+### Open questions for M5
+
+| ID | Question | Recommendation |
+| --- | --- | --- |
+| M5-Q1 | Who provides the agents under test (R-012), and will their teams accept the `ExternalAgent` stdio protocol and a structured final answer? | Yes to both; until then, scripted stand-ins run the pilot tasks |
+| M5-Q3 | Egress mechanism (§15) | In-process guard, allowing nothing |
+| M5-Q4 | Tool descriptions and input schemas don't exist in Romik's format (R-020). Interim source? | `catalog/definitions/<tool>/<version>.yaml` (synthetic descriptions and input schemas, CODEOWNERS), replaced by the registry |
+| M5-Q5 | Results and quarantine storage | JSON artifacts plus `quarantine.yaml` via PR |
+| M5-Q6 | Thresholds: reads 2/3, writes 3/3 (§6.6)? Pilot tasks: 2–3 synthetic scenarios per pilot tool (e.g. in progress, completed, not found), no AT&T facts? | Yes to both |
+| M5-Q9 | Adopt R-013 as recommended (quarantine blocks promotion unless waived)? | Yes |
+
+M5-Q2 (LLM provider) and M5-Q7 (LLM key in CI) are withdrawn until the LLM layer is taken up (D-072). R-012 stays open for then.
+
+**Dependencies requested:** none (`pyyaml`, `rfc8785` and stdlib `difflib`/`asyncio` subprocesses cover it).
+
+---
+
 ## 2026-09-25 — Session 14: M3 implemented
 
 The owner gave the go-ahead for M3 (D-059). Built per the Session 6 design and D-037:
