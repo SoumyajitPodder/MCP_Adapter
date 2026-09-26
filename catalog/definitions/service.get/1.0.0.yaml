@@ -1,0 +1,9 @@
+# Agent-facing definition (tools/list). Synthetic stand-in for the tool registry (R-020).
+# TODO(owner): replace with the registry's definition.
+tool: service.get
+version: "1.0.0"
+description: >-
+  Look up one service by its service ID. Returns the service's status (active, suspended or
+  terminated), the account ID and when the service was activated. Read-only.
+inputs:
+  - {name: service_id, type: string, description: "The service ID, e.g. S-3301."}

@@ -3,15 +3,15 @@
 The execution and verification layer of an MCP adapter that puts stable, versioned tools in front of legacy telecom backends. It answers one question: **can we safely and reliably execute and verify this tool call?**
 
 > **Status:**
-> - Done: M0 (foundation), M1 (logging and audit), M2 (access control), M3 (duplicate prevention), M4 (contract CI).
-> - Next: M5 (golden tasks).
+> - Done: M0 (foundation), M1 (logging and audit), M2 (access control), M3 (duplicate prevention), M4 (contract CI), M5a (golden-task core, offline).
+> - Next: M5b (LLM agents and judge), after the provider decision.
 
 ## What it does
 
 | Component | When it runs | Purpose | State |
 | --- | --- | --- | --- |
 | Contract testing | CI | Blocks upstream or contract changes that would break agents | **M4, done** |
-| Golden-task regression | CI / sandbox | Proves agent behavior still holds after tool, description, mapping or model changes | M5, not started |
+| Golden-task regression | CI / sandbox | Proves agent behavior still holds after tool, description, mapping or model changes | **M5a done** (no agent harness yet) |
 | Duplicate prevention | every mutating call | Retries of a mutating call take effect exactly once; if the outcome is unknown, it goes to a human instead of guessing | **M3, done** |
 | Correlation-ID logging | every call | One ID reconstructs a whole decision chain, with fail-closed redaction and a tamper-evident audit trail | **M1, done** |
 | Access control | every call | Deny by default, enforced at both tool discovery and tool execution | **M2, done** |
@@ -80,6 +80,8 @@ Access policies live in `policies/` (one file per agent), checked by `uv run ada
 uv run adapter-verify access explain --agent order-status-agent --tool order.get
 ```
 
+Golden tasks live in `golden_tasks/`; `uv run adapter-verify golden lint` checks them in CI. `golden run` and `golden gate` need an agent harness, which arrives with M5b; until then `golden run` exits 3 naming the missing harness.
+
 Contract checks run in CI; locally:
 
 ```bash
@@ -114,7 +116,7 @@ Access (§9) and idempotency (§7) stages exist; the others arrive with Romik's 
 
 ## Costs
 
-- There are no LLM costs yet. Golden tasks (M5) will have them, measured once they exist. They aren't estimated before then.
+- There are no LLM costs yet. Golden runs with LLM agents and a judge (M5b) will have them; they will be measured on the first real run, not estimated.
 - The audit trail writes one row per audited decision. Anchoring adds one row per changed chain per run.
 
 ## Constraints

@@ -12,6 +12,7 @@ import getpass
 import os
 import sys
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
@@ -32,6 +33,15 @@ from adapter_verify.contract_ci.domain.differ import classify, diff
 from adapter_verify.contract_ci.domain.extract import ExtractionError
 from adapter_verify.contract_ci.domain.rules import CheckKind
 from adapter_verify.contract_ci.service import ContractCi, ReleaseError
+from adapter_verify.golden.adapters.files import Workspace, read_results, write_results
+from adapter_verify.golden.adapters.git import GitError
+from adapter_verify.golden.domain import lint as golden_lint_rules
+from adapter_verify.golden.domain.report import render
+from adapter_verify.golden.domain.results import TaskVerdict
+from adapter_verify.golden.domain.select import select
+from adapter_verify.golden.domain.verdict import gate
+from adapter_verify.golden.ports import HarnessUnavailableError
+from adapter_verify.golden.service import SuitePlan
 from adapter_verify.idempotency.domain.keys import is_valid_key
 from adapter_verify.idempotency.domain.records import IdempotencyRecord, RecordKey
 from adapter_verify.idempotency.service import Operator, Resolution
@@ -42,6 +52,7 @@ from adapter_verify.settings import (
     AccessSettings,
     ContractSettings,
     DatabaseSettings,
+    GoldenSettings,
     IdempotencySettings,
 )
 
@@ -457,3 +468,200 @@ def idem_resolve(  # noqa: PLR0913, PLR0917 - one parameter per option
         click.echo("no UNKNOWN record with this agent, tool and key", err=True)
         sys.exit(EXIT_FAILED)
     click.echo(_row(record))
+
+
+# --------------------------------------------------------------------------- golden tasks
+
+
+EXIT_INCOMPLETE: Final = 2
+
+
+def _golden_settings() -> GoldenSettings:
+    try:
+        return GoldenSettings()
+    except ValidationError as exc:
+        fields = ", ".join(
+            ".".join(str(p) for p in e["loc"]) for e in exc.errors(include_input=False)
+        )
+        _fail(f"invalid golden settings ({fields}); see docs/SPEC.md section 4")
+        raise  # unreachable
+
+
+class _Golden:
+    """Everything the golden commands read, loaded once."""
+
+    def __init__(self) -> None:
+        self.settings = _golden_settings()
+        self.access = _access_settings()
+        documents, self.catalog = _access_config()
+        self.policies = PolicySet(d.policy for d in documents if d.policy is not None)
+        try:
+            self.workspace: Workspace = composition.golden_workspace(self.settings)
+            self.contracts = composition.canonical_contracts(ContractSettings())
+        except (ConfigFileError, OSError, ValueError) as exc:
+            _fail(f"cannot load golden tasks ({exc})")
+            raise  # unreachable
+        self.layout = composition.golden_layout(self.settings, self.access)
+
+    def findings(self) -> list[golden_lint_rules.GoldenFinding]:
+        return golden_lint_rules.lint(
+            self.workspace.inputs, self.catalog, self.policies, self.contracts
+        )
+
+
+@cli.group()
+def golden() -> None:
+    """Golden-task regression (brief 6): lint, select, run, gate."""
+
+
+@golden.command("lint")
+def golden_lint() -> None:
+    """Check task files, agent configs, tool definitions and fixtures. Exit 1 on findings."""
+    g = _Golden()
+    findings = g.findings()
+    for f in findings:
+        click.echo(f"{f.rule_id}\t{f.path}\t{f.detail}")
+    if findings:
+        sys.exit(EXIT_FAILED)
+    click.echo(f"{len(g.workspace.tasks)} golden task(s) clean")
+
+
+@golden.command("select")
+@click.option("--changed-since", "base", required=True, help="Git ref to compare against.")
+def golden_select(base: str) -> None:
+    """Print the tasks a change affects, with the reason (brief 6.7)."""
+    g = _Golden()
+    try:
+        changed = composition.git_repo(g.settings).changed_paths(base)
+    except GitError as exc:
+        _fail(str(exc))
+        return
+    for task_id, reasons in sorted(select(g.workspace.tasks, changed, g.layout).items()):
+        click.echo(f"{task_id}\t{'; '.join(reasons)}")
+
+
+@golden.command("run")
+@click.option("--task", "task_ids", multiple=True, help="Run this task (repeatable).")
+@click.option("--agent", "agents", multiple=True, help="Run this agent's tasks (repeatable).")
+@click.option("--tool", "tools", multiple=True, help="Run tasks touching this tool (repeatable).")
+@click.option("--all", "run_all", is_flag=True, help="Run every task.")
+@click.option("--changed-since", "base", default=None, help="Run tasks affected since this ref.")
+@click.option(
+    "--previous",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Earlier results, for quarantine recommendations.",
+)
+@click.option("--results", type=click.Path(dir_okay=False, path_type=Path), help="Results file.")
+@click.option("--report", type=click.Path(dir_okay=False, path_type=Path), help="Markdown report.")
+def golden_run(  # noqa: PLR0913, PLR0917 - one parameter per option
+    task_ids: tuple[str, ...],
+    agents: tuple[str, ...],
+    tools: tuple[str, ...],
+    run_all: bool,  # noqa: FBT001 - click flag
+    base: str | None,
+    previous: Path | None,
+    results: Path | None,
+    report: Path | None,
+) -> None:
+    """Run golden tasks. Exit 0 all pass, 1 any fail, 2 incomplete (not judged), 3 tool error."""
+    g = _Golden()
+    if g.findings():
+        _fail("golden tasks fail lint; run `adapter-verify golden lint`")
+    tasks = g.workspace.tasks
+    reasons: dict[str, list[str]] = {}
+    repo = composition.git_repo(g.settings)
+    changed: list[str] = []
+    if base is not None:
+        try:
+            changed = repo.changed_paths(base)
+        except GitError as exc:
+            _fail(str(exc))
+        reasons = select(tasks, changed, g.layout)
+    wanted = [
+        t
+        for t in tasks
+        if run_all
+        or t.task_id in task_ids
+        or t.agent in agents
+        or bool(t.tools() & set(tools))
+        or t.task_id in reasons
+    ]
+    if not (run_all or task_ids or agents or tools or base):
+        _fail("choose tasks: --all, --task, --agent, --tool or --changed-since")
+    if not wanted:
+        click.echo("no golden tasks selected")
+        return
+    try:
+        prior = None if previous is None else read_results(previous)
+    except ConfigFileError as exc:
+        _fail(str(exc))
+        return
+    now = datetime.now(UTC)
+    plan = SuitePlan(
+        run_id=f"golden-{now:%Y%m%dT%H%M%SZ}",
+        git_sha=repo.head(),
+        tasks=wanted,
+        agents=g.workspace.agents,
+        digests=composition.golden_digests(g.workspace, g.policies),
+        quarantine=g.workspace.quarantine,
+        selected_because=reasons,
+        previous=prior,
+        token_budget=g.settings.token_budget,
+    )
+    runner = composition.golden_runner(g.settings, g.access, g.workspace)
+    try:
+        outcome = asyncio.run(runner.run(plan))
+    except HarnessUnavailableError as exc:
+        _fail(str(exc))
+        return
+    target = results or g.settings.root / g.settings.results_dir / f"{outcome.run_id}.json"
+    write_results(outcome, target)
+    diffs = (
+        {}
+        if base is None
+        else composition.golden_description_diffs(repo, base, g.workspace, g.layout, changed)
+    )
+    markdown = render(outcome, diffs)
+    click.echo(markdown)
+    for out in (report, os.environ.get("GITHUB_STEP_SUMMARY")):
+        if out:
+            with Path(out).open("a", encoding="utf-8", newline="\n") as fh:
+                fh.write(markdown)
+    click.echo(f"results: {target}", err=True)
+    verdicts = {t.verdict for t in outcome.tasks if not t.quarantined}
+    if TaskVerdict.FAIL in verdicts:
+        sys.exit(EXIT_FAILED)
+    if TaskVerdict.INCOMPLETE in verdicts:
+        sys.exit(EXIT_INCOMPLETE)
+
+
+@golden.command("gate")
+@click.option("--tool", required=True, help="Tool being promoted.")
+@click.option("--version", required=True, help="Version being promoted.")
+@click.option(
+    "--results",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="Results of the suite run to judge the promotion on.",
+)
+def golden_gate(tool: str, version: str, results: Path) -> None:
+    """Promotion gate (brief 6.9). Exit 0 pass, 1 fail or stale, 2 blocked by quarantine."""
+    g = _Golden()
+    try:
+        suite = read_results(results)
+    except ConfigFileError as exc:
+        _fail(str(exc))
+        return
+    default = g.catalog.resolve(tool, None)
+    decision = gate(
+        tool,
+        version,
+        tasks=g.workspace.tasks,
+        digests=composition.golden_digests(g.workspace, g.policies),
+        results=suite,
+        quarantine=g.workspace.quarantine,
+        default_version=None if default is None else default.version,
+    )
+    for line in decision.lines:
+        click.echo(line)
+    sys.exit(int(decision.exit))

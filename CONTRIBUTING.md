@@ -19,6 +19,7 @@ uv run mypy
 uv run lint-imports                       # architecture contracts
 uv run pytest --cov                       # unit + property (coverage floor 90%)
 uv run pytest -m integration              # real Postgres via Docker
+uv run adapter-verify golden lint         # golden task files
 uv run python scripts/gen_spec.py         # regenerate SPEC tables and docs/schemas
 uv run python scripts/gen_spec.py --check # CI freshness gate
 uv lock --check
@@ -34,6 +35,7 @@ uv lock --check
 | `src/adapter_verify/composition.py` | The only place ports are wired to adapters |
 | `migrations/` | Forward-only, checksummed SQL |
 | `policies/`, `catalog/`, `credentials.yaml` | Access policies, the synthetic tool catalog, tool → secret names (CODEOWNERS) |
+| `golden_tasks/`, `catalog/definitions/`, `fixtures/golden/` | Golden tasks and agent configs, agent-facing tool definitions, synthetic fixtures; `quarantine.yaml` changes only by reviewed PR |
 | `sources/`, `baselines/`, `contracts/`, `fixtures/samples/` | Contract CI inputs; baselines and `contracts/released.json` change only via the CLI |
 | `tests/` | `unit/`, `property/`, `integration/`; `sentinels.py` (leak scan on every test); `contracts.py` (port contract suites) |
 

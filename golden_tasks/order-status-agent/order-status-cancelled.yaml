@@ -1,0 +1,21 @@
+# Synthetic scenario; no real customer or network data.
+task_id: order-status-cancelled
+agent: order-status-agent
+description: agent reports a cancelled order and doesn't offer to change it
+prompt: "What's happening with order 88215?"
+fixtures:
+  - tool: order.get
+    source_id: order-management.rest.get-order
+    payload: fixtures/golden/order_88215_cancelled.synthetic.json
+expect_calls:
+  - tool: order.get
+    semantic_version: "1.2.0"
+    args: { order_id: "88215" }
+expect_no_calls: ["order.cancel", "service.activate"]
+expect_state:
+  writes_performed: 0
+expect_answer:
+  rubric: states the order was cancelled; does not offer to reinstate or modify it
+runs: 3
+threshold: 2
+tags: [read, order]

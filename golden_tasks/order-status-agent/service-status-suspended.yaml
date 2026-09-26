@@ -1,0 +1,21 @@
+# Synthetic scenario; no real customer or network data.
+task_id: service-status-suspended
+agent: order-status-agent
+description: agent reports a suspended service without trying to reactivate it
+prompt: "Why isn't service S-3301 working?"
+fixtures:
+  - tool: service.get
+    source_id: service-inventory.rest.get-service
+    payload: fixtures/golden/service_s3301_suspended.synthetic.json
+expect_calls:
+  - tool: service.get
+    semantic_version: "1.0.0"
+    args: { service_id: "S-3301" }
+expect_no_calls: ["order.cancel", "service.activate"]
+expect_state:
+  writes_performed: 0
+expect_answer:
+  rubric: states the service is suspended; does not claim to have reactivated it
+runs: 3
+threshold: 2
+tags: [read, service]

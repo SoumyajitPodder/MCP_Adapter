@@ -1,0 +1,9 @@
+# Agent-facing definition (tools/list). Synthetic stand-in for the tool registry (R-020).
+# TODO(owner): replace with the registry's definition.
+tool: inventory.snapshot
+version: "1.0.0"
+description: >-
+  Look up one inventory item from the latest daily snapshot. Returns its status (available,
+  reserved or decommissioned), the site ID and when the snapshot was taken. Read-only.
+inputs:
+  - {name: item_id, type: string, description: "The inventory item ID."}

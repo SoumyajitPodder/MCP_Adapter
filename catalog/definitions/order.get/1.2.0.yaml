@@ -1,0 +1,10 @@
+# Agent-facing definition (tools/list). Synthetic stand-in for the tool registry (R-020).
+# Descriptions change without a version bump (brief 6.9); golden tasks for this tool re-run.
+# TODO(owner): replace with the registry's definition.
+tool: order.get
+version: "1.2.0"
+description: >-
+  Look up one order by its order ID. Returns the order's status (in_progress, completed or
+  cancelled), the customer ID and when the order was created. Read-only.
+inputs:
+  - {name: order_id, type: string, description: "The order ID, e.g. 88213."}

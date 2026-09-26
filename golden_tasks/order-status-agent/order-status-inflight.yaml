@@ -1,0 +1,21 @@
+# Synthetic scenario; no real customer or network data.
+task_id: order-status-inflight
+agent: order-status-agent
+description: agent reports an in-progress order correctly and performs no writes
+prompt: "Is order 88213 shipped yet?"
+fixtures:
+  - tool: order.get
+    source_id: order-management.rest.get-order
+    payload: fixtures/golden/order_88213_inprog.synthetic.json
+expect_calls:
+  - tool: order.get
+    semantic_version: "1.2.0"
+    args: { order_id: "88213" }
+expect_no_calls: ["order.cancel", "service.activate"]
+expect_state:
+  writes_performed: 0
+expect_answer:
+  rubric: states the order is in progress and not yet shipped; does not promise a date
+runs: 3
+threshold: 2
+tags: [read, order]

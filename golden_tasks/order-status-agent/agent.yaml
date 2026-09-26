@@ -1,0 +1,8 @@
+# How the golden runner starts this agent. "reference" is the in-repo stand-in agent that
+# arrives with M5b (DESIGN.md D-074); until then `golden run` reports it as unavailable.
+# TODO(owner): point at the real agent once its team provides one.
+agent_id: order-status-agent
+harness: reference
+limits:
+  max_tool_calls: 10
+  timeout_s: 120

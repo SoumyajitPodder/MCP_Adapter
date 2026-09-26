@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "QuarantineEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "owner": {
+          "description": "Who fixes it.",
+          "minLength": 1,
+          "title": "Owner",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why it is quarantined.",
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "since": {
+          "description": "YYYY-MM-DD, quoted.",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "title": "Since",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "Quarantined task.",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "waiver": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Waiver"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Promotion waiver, if any."
+        }
+      },
+      "required": [
+        "task_id",
+        "owner",
+        "reason",
+        "since"
+      ],
+      "title": "QuarantineEntry",
+      "type": "object"
+    },
+    "Waiver": {
+      "additionalProperties": false,
+      "description": "Lets named tools be promoted while a task that touches them is quarantined (R-013).",
+      "properties": {
+        "approved_by": {
+          "description": "Who accepted the risk.",
+          "minLength": 1,
+          "title": "Approved By",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why.",
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "tools": {
+          "description": "Tools released from the block.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tools",
+        "approved_by",
+        "reason"
+      ],
+      "title": "Waiver",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``golden_tasks/quarantine.yaml``. Changed only by reviewed PR (CODEOWNERS).",
+  "properties": {
+    "entries": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/QuarantineEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "title": "QuarantineList",
+  "type": "object"
+}

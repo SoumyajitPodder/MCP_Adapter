@@ -1,0 +1,507 @@
+{
+  "$defs": {
+    "AgentIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "description": "Agent under test.",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "harness": {
+          "description": "Harness kind.",
+          "title": "Harness",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Model ID the harness reports, if any.",
+          "title": "Model"
+        }
+      },
+      "required": [
+        "agent_id",
+        "harness",
+        "model"
+      ],
+      "title": "AgentIdentity",
+      "type": "object"
+    },
+    "CallRecord": {
+      "additionalProperties": false,
+      "description": "One tool call as the sandbox saw it: the authoritative record, not the agent's claim.",
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/JsonObject",
+          "description": "Arguments as sent (synthetic data only)."
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Agent-facing error, if the call failed."
+        },
+        "tool": {
+          "description": "Tool name as called.",
+          "title": "Tool",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Resolved version; None when the tool is unknown.",
+          "title": "Version"
+        }
+      },
+      "required": [
+        "tool",
+        "version",
+        "arguments",
+        "error_code"
+      ],
+      "title": "CallRecord",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "description": "Every error an agent can receive. Nothing else is ever returned.",
+      "enum": [
+        "INVALID_INPUT",
+        "NOT_AUTHORIZED",
+        "VERSION_NOT_PERMITTED",
+        "SCOPE_VIOLATION",
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "IDEMPOTENCY_KEY_CONFLICT",
+        "DUPLICATE_IN_PROGRESS",
+        "RECONCILIATION_PENDING",
+        "DRIFT_BLOCKED",
+        "UPSTREAM_UNAVAILABLE",
+        "CONTRACT_VIOLATION",
+        "INTERNAL"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "ErrorKind": {
+      "enum": [
+        "budget_exceeded",
+        "egress_blocked",
+        "sentinel_leak",
+        "harness_error",
+        "judge_error"
+      ],
+      "title": "ErrorKind",
+      "type": "string"
+    },
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonValue": {},
+    "JudgeVerdict": {
+      "additionalProperties": false,
+      "description": "What a judge returns. Validated; an inconsistent verdict is JUDGE_ERROR, never a pass.",
+      "properties": {
+        "passed": {
+          "description": "The judge's decision.",
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "reasons": {
+          "description": "Why, briefly.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "score": {
+          "description": "0 = fails the rubric, 1 = fully meets it.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "score",
+        "passed",
+        "reasons"
+      ],
+      "title": "JudgeVerdict",
+      "type": "object"
+    },
+    "Layer": {
+      "enum": [
+        "calls",
+        "sequence",
+        "state",
+        "answer"
+      ],
+      "title": "Layer",
+      "type": "string"
+    },
+    "LayerFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "description": "What happened.",
+          "title": "Actual",
+          "type": "string"
+        },
+        "expected": {
+          "description": "What the task required.",
+          "title": "Expected",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/Layer"
+        }
+      },
+      "required": [
+        "layer",
+        "expected",
+        "actual"
+      ],
+      "title": "LayerFailure",
+      "type": "object"
+    },
+    "RunOutcome": {
+      "enum": [
+        "pass",
+        "fail",
+        "error",
+        "judge_uncalibrated",
+        "not_judged"
+      ],
+      "title": "RunOutcome",
+      "type": "string"
+    },
+    "RunRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Final answer (synthetic data only).",
+          "title": "Answer"
+        },
+        "calls": {
+          "default": [],
+          "description": "Calls, as the sandbox saw them.",
+          "items": {
+            "$ref": "#/$defs/CallRecord"
+          },
+          "title": "Calls",
+          "type": "array"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Log-safe detail for errors.",
+          "title": "Detail"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when outcome is error."
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayerFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when outcome is fail."
+        },
+        "index": {
+          "description": "Run number within the task.",
+          "minimum": 1,
+          "title": "Index",
+          "type": "integer"
+        },
+        "judge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JudgeVerdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "outcome": {
+          "$ref": "#/$defs/RunOutcome"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "index",
+        "outcome"
+      ],
+      "title": "RunRecord",
+      "type": "object"
+    },
+    "TaskResult": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "title": "Agent",
+          "type": "string"
+        },
+        "input_digest": {
+          "description": "Digest of every input the task depends on.",
+          "title": "Input Digest",
+          "type": "string"
+        },
+        "quarantine_recommended": {
+          "description": "Failed its threshold twice in a row on the same input digest.",
+          "title": "Quarantine Recommended",
+          "type": "boolean"
+        },
+        "quarantined": {
+          "description": "Listed in quarantine.yaml: reported, doesn't gate.",
+          "title": "Quarantined",
+          "type": "boolean"
+        },
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/RunRecord"
+          },
+          "title": "Runs",
+          "type": "array"
+        },
+        "runs_required": {
+          "minimum": 1,
+          "title": "Runs Required",
+          "type": "integer"
+        },
+        "selected_because": {
+          "default": [],
+          "description": "Why the task ran.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Selected Because",
+          "type": "array"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "threshold": {
+          "minimum": 1,
+          "title": "Threshold",
+          "type": "integer"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "verdict": {
+          "$ref": "#/$defs/TaskVerdict"
+        }
+      },
+      "required": [
+        "task_id",
+        "agent",
+        "tools",
+        "input_digest",
+        "runs_required",
+        "threshold",
+        "verdict",
+        "runs",
+        "quarantined",
+        "quarantine_recommended"
+      ],
+      "title": "TaskResult",
+      "type": "object"
+    },
+    "TaskVerdict": {
+      "enum": [
+        "pass",
+        "fail",
+        "incomplete"
+      ],
+      "title": "TaskVerdict",
+      "type": "string"
+    },
+    "TokenUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "TokenUsage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "agents": {
+      "items": {
+        "$ref": "#/$defs/AgentIdentity"
+      },
+      "title": "Agents",
+      "type": "array"
+    },
+    "budget_exceeded": {
+      "title": "Budget Exceeded",
+      "type": "boolean"
+    },
+    "finished_at": {
+      "format": "date-time",
+      "title": "Finished At",
+      "type": "string"
+    },
+    "git_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Git Sha"
+    },
+    "judge_calibrated": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "None when no judge is configured.",
+      "title": "Judge Calibrated"
+    },
+    "judge_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Judge model, when a judge is configured.",
+      "title": "Judge Model"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "#/$defs/TaskResult"
+      },
+      "title": "Tasks",
+      "type": "array"
+    },
+    "token_budget": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Suite token budget, if set.",
+      "title": "Token Budget"
+    },
+    "usage": {
+      "$ref": "#/$defs/TokenUsage"
+    }
+  },
+  "required": [
+    "run_id",
+    "git_sha",
+    "started_at",
+    "finished_at",
+    "agents",
+    "judge_model",
+    "judge_calibrated",
+    "token_budget",
+    "usage",
+    "budget_exceeded",
+    "tasks"
+  ],
+  "title": "SuiteResults",
+  "type": "object"
+}

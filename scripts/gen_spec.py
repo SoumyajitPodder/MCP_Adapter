@@ -49,6 +49,22 @@ from adapter_verify.contract_ci.adapters.files import load_rulebook
 from adapter_verify.contract_ci.domain import checks as contract_checks
 from adapter_verify.contract_ci.domain.contracts import CanonicalContract, ReleaseLock
 from adapter_verify.contract_ci.domain.sources import SourceConfig
+from adapter_verify.golden.domain import lint as golden_lint
+from adapter_verify.golden.domain.definitions import InputField, ToolDefinition
+from adapter_verify.golden.domain.judge import CalibrationCase
+from adapter_verify.golden.domain.results import RESULTS_SCHEMA_VERSION, SuiteResults
+from adapter_verify.golden.domain.tasks import (
+    AgentConfig,
+    ExpectedAnswer,
+    ExpectedCall,
+    ExpectedState,
+    FixtureRef,
+    GoldenTask,
+    QuarantineEntry,
+    QuarantineList,
+    RunLimits,
+    Waiver,
+)
 from adapter_verify.idempotency.domain.records import AlertKind, IdempotencyRecord
 from adapter_verify.observability.domain.attributes import (
     SEMCONV_GENAI_COMMIT,
@@ -61,6 +77,7 @@ from adapter_verify.settings import (
     AccessSettings,
     ContractSettings,
     DatabaseSettings,
+    GoldenSettings,
     IdempotencySettings,
     ObservabilitySettings,
 )
@@ -97,6 +114,12 @@ SCHEMA_MODELS: tuple[type[BaseModel], ...] = (
     CanonicalContract,
     ReleaseLock,
     IdempotencyRecord,
+    GoldenTask,
+    AgentConfig,
+    QuarantineList,
+    ToolDefinition,
+    CalibrationCase,
+    SuiteResults,
 )
 SETTINGS: tuple[type[BaseSettings], ...] = (
     ObservabilitySettings,
@@ -104,6 +127,7 @@ SETTINGS: tuple[type[BaseSettings], ...] = (
     AccessSettings,
     IdempotencySettings,
     ContractSettings,
+    GoldenSettings,
 )
 KERNEL_ENUMS: tuple[type[StrEnum], ...] = (
     Classification,
@@ -326,6 +350,34 @@ def idempotency_record() -> str:
     )
 
 
+def golden_task_schema() -> str:
+    rules = "\n".join(f"| `{rule}` | {_cell(text)} |" for rule, text in golden_lint.RULES.items())
+    return "\n\n".join(
+        [
+            "JSON Schemas: `docs/schemas/GoldenTask.json`, `AgentConfig.json`, "
+            "`QuarantineList.json`, `ToolDefinition.json`, `CalibrationCase.json`, "
+            f"`SuiteResults.json` (results schema version {RESULTS_SCHEMA_VERSION}).",
+            *(
+                _model_table(m)
+                for m in (
+                    GoldenTask,
+                    FixtureRef,
+                    ExpectedCall,
+                    ExpectedState,
+                    ExpectedAnswer,
+                    AgentConfig,
+                    RunLimits,
+                    QuarantineEntry,
+                    Waiver,
+                    ToolDefinition,
+                    InputField,
+                )
+            ),
+            "| Lint rule | Fails when |\n| --- | --- |\n" + rules,
+        ]
+    )
+
+
 def _not_yet(milestone: str) -> Callable[[], str]:
     return lambda: f"_Not implemented yet ({milestone})._"
 
@@ -335,7 +387,7 @@ SECTIONS: dict[str, Callable[[], str]] = {
     "error-codes": error_codes,
     "config": config,
     "rules": contract_rules,
-    "golden-task-schema": _not_yet("M5"),
+    "golden-task-schema": golden_task_schema,
     "idempotency-record": idempotency_record,
     "event-schema": event_schema,
     "policy-schema": policy_schema,

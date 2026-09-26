@@ -3,12 +3,14 @@
 Stage order is fixed here and covered by a test (§3.5).
 """
 
+import difflib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import asyncpg
+from pydantic import SecretStr
 
 from adapter_kernel.pipeline import Next, Stage
 from adapter_verify.access.adapters.files import (
@@ -19,6 +21,7 @@ from adapter_verify.access.adapters.files import (
 from adapter_verify.access.adapters.jwt import JwksCache, JwtTokenVerifier, https_jwks_fetcher
 from adapter_verify.access.domain.lint import PolicyDocument
 from adapter_verify.access.domain.policy import PolicySet, ToolCatalog
+from adapter_verify.access.fakes import SentinelSecretManager, StaticTokenVerifier
 from adapter_verify.access.ports import SecretManager, TokenVerifier
 from adapter_verify.access.service import (
     AccessObserver,
@@ -29,13 +32,25 @@ from adapter_verify.access.service import (
 )
 from adapter_verify.common.adapters.postgres import load_migrations, migrate
 from adapter_verify.common.adapters.system import SystemClock, SystemEntropy
+from adapter_verify.common.adapters.yamlfile import ConfigFileError, parse_yaml_model
 from adapter_verify.common.ports import Clock, Entropy
 from adapter_verify.contract_ci.adapters.files import FileContractRepository
+from adapter_verify.contract_ci.domain.contracts import CanonicalContract
 from adapter_verify.contract_ci.domain.extract import EvidenceThreshold
 from adapter_verify.contract_ci.service import AccessView, ContractCi
+from adapter_verify.golden.adapters.egress import SocketEgressGuard
+from adapter_verify.golden.adapters.files import Workspace, load_calibration, load_workspace
+from adapter_verify.golden.adapters.git import GitRepo
+from adapter_verify.golden.domain.definitions import ToolDefinition
+from adapter_verify.golden.domain.select import Layout, input_digest
+from adapter_verify.golden.domain.tasks import AgentConfig, GoldenTask
+from adapter_verify.golden.ports import AgentHarness, HarnessUnavailableError, SandboxSession
+from adapter_verify.golden.sandbox import DefinitionInputStage, FixtureBackend, GoldenSandbox
+from adapter_verify.golden.service import GoldenRunner
 from adapter_verify.idempotency.adapters.alerts import LogOwnerAlerts
 from adapter_verify.idempotency.adapters.postgres import PostgresIdempotencyStore
 from adapter_verify.idempotency.domain.records import Timing
+from adapter_verify.idempotency.fakes import MemoryIdempotencyStore, MemoryOwnerAlerts
 from adapter_verify.idempotency.ports import IdempotencyStore, OwnerAlerts
 from adapter_verify.idempotency.service import (
     IdempotencyAudit,
@@ -48,6 +63,13 @@ from adapter_verify.observability.adapters.postgres import PostgresAuditStore, P
 from adapter_verify.observability.adapters.stdlog import LogDiagnostics, LogEventSink
 from adapter_verify.observability.audit_service import AuditTrail
 from adapter_verify.observability.buffered_sink import BufferedEventSink
+from adapter_verify.observability.fakes import (
+    MemoryAuditStore,
+    MemoryDiagnostics,
+    MemoryEventSink,
+    MemoryPayloadStore,
+    RecordingTelemetry,
+)
 from adapter_verify.observability.ports import (
     Diagnostics,
     EventSink,
@@ -62,6 +84,7 @@ from adapter_verify.settings import (
     AccessSettings,
     ContractSettings,
     DatabaseSettings,
+    GoldenSettings,
     IdempotencySettings,
     ObservabilitySettings,
 )
@@ -241,6 +264,17 @@ def contract_ci(settings: ContractSettings) -> ContractCi:
     )
 
 
+def canonical_contracts(settings: ContractSettings) -> Sequence[CanonicalContract]:
+    root = settings.root
+    return FileContractRepository(
+        root=root,
+        sources_dir=root / settings.sources_dir,
+        baselines_dir=root / settings.baselines_dir,
+        contracts_dir=root / settings.contracts_dir,
+        mappings_dir=root / settings.mappings_dir,
+    ).contracts()
+
+
 def access_view(settings: AccessSettings) -> AccessView:
     """Access config as contract CI sees it. Lint-invalid policies are left out of the join."""
     documents = load_policy_documents(settings.policies_dir)
@@ -281,3 +315,173 @@ def idempotency_maintenance(
         clock,
         timing(settings),
     )
+
+
+# --------------------------------------------------------------------------- golden tasks (§6)
+
+
+def golden_workspace(settings: GoldenSettings) -> Workspace:
+    return load_workspace(settings.root, settings.tasks_dir, settings.definitions_dir)
+
+
+def golden_layout(settings: GoldenSettings, access: AccessSettings) -> Layout:
+    root = settings.root.resolve()
+
+    def rel(path: Path) -> str:
+        full = (root / path).resolve()
+        return full.relative_to(root).as_posix() if full.is_relative_to(root) else path.as_posix()
+
+    return Layout(
+        tasks_dir=rel(settings.tasks_dir),
+        definitions_dir=rel(settings.definitions_dir),
+        catalog_file=rel(access.catalog_path),
+        policies_dir=rel(access.policies_dir),
+        quarantine_file=f"{rel(settings.tasks_dir)}/quarantine.yaml",
+    )
+
+
+def golden_digests(workspace: Workspace, policies: PolicySet) -> dict[str, str]:
+    definitions = list(workspace.definitions.values())
+    agents = workspace.agents
+    digests: dict[str, str] = {}
+    for task in workspace.tasks:
+        policy = policies.get(task.agent)
+        digests[task.task_id] = input_digest(
+            task,
+            definitions,
+            workspace.fixture_digests,
+            agents.get(task.agent),
+            None if policy is None else policy.model_dump(mode="json"),
+        )
+    return digests
+
+
+def golden_harness(config: AgentConfig) -> AgentHarness:
+    """No production harness exists yet: reference agents arrive with M5b (DESIGN.md D-074)."""
+    msg = f"no agent harness of kind {config.harness!r} is available for {config.agent_id}"
+    raise HarnessUnavailableError(msg)
+
+
+def golden_sandboxes(access_settings: AccessSettings, workspace: Workspace) -> "_SandboxFactory":
+    return _SandboxFactory(access_settings, workspace)
+
+
+class _SandboxFactory:
+    """A fresh pipeline per run: in-memory stores, sentinel secrets, the real policies."""
+
+    def __init__(self, access_settings: AccessSettings, workspace: Workspace) -> None:
+        self._access = access_settings
+        self._workspace = workspace
+
+    def __call__(self, task: GoldenTask, run_label: str) -> SandboxSession:
+        clock, entropy = SystemClock(), SystemEntropy()
+        telemetry, events = RecordingTelemetry(), MemoryEventSink()
+        diagnostics, audit_store, alerts = (
+            MemoryDiagnostics(),
+            MemoryAuditStore(),
+            MemoryOwnerAlerts(),
+        )
+        audit = AuditTrail(audit_store, clock)
+        credential = SecretStr(f"golden:{run_label}")
+        access = build_access(
+            self._access,
+            verifier=StaticTokenVerifier({credential.get_secret_value(): task.agent}),
+            secrets=SentinelSecretManager(),
+            audit=audit,
+            telemetry=telemetry,
+            events=events,
+            diagnostics=diagnostics,
+            clock=clock,
+        )
+        idempotency = build_idempotency(
+            IdempotencySettings(),
+            store=MemoryIdempotencyStore(),
+            payloads=MemoryPayloadStore(),
+            audit=audit,
+            telemetry=telemetry,
+            events=events,
+            diagnostics=diagnostics,
+            alerts=alerts,
+            clock=clock,
+            entropy=entropy,
+        )
+        definitions = self._workspace.definitions
+        fixtures = [
+            (ref, body)
+            for ref in task.fixtures
+            if (body := self._workspace.fixture(ref.payload)) is not None
+        ]
+        backend = FixtureBackend(fixtures, access.credentials)
+        stages = stage_order(access, idempotency)
+        stages.insert(1, DefinitionInputStage(definitions))  # §1.3: validation after access
+        entry = ObservedEntry(
+            telemetry=telemetry,
+            events=events,
+            diagnostics=diagnostics,
+            clock=clock,
+            entropy=entropy,
+            downstream=AuthenticatedPipeline(access.authenticator, stages, backend),
+        )
+        return GoldenSandbox(
+            entry=entry,
+            authenticator=access.authenticator,
+            credential=credential,
+            catalog=load_catalog(self._access.catalog_path),
+            definitions=definitions,
+            backend=backend,
+            sinks=(telemetry, events, diagnostics, audit_store, alerts),
+            label=run_label,
+        )
+
+
+def golden_runner(
+    settings: GoldenSettings,
+    access_settings: AccessSettings,
+    workspace: Workspace,
+) -> GoldenRunner:
+    return GoldenRunner(
+        sandboxes=golden_sandboxes(access_settings, workspace),
+        harnesses=golden_harness,
+        judge=None,  # the LLM judge adapter arrives with M5b
+        calibration=load_calibration(settings.root / settings.calibration_dir)
+        if (settings.root / settings.calibration_dir).is_dir()
+        else [],
+        egress=SocketEgressGuard(frozenset(settings.egress_allowed_hosts)),
+        clock=SystemClock(),
+    )
+
+
+def git_repo(settings: GoldenSettings) -> GitRepo:
+    return GitRepo(settings.root)
+
+
+def golden_description_diffs(
+    repo: GitRepo, base: str, workspace: Workspace, layout: Layout, changed: list[str]
+) -> dict[str, str]:
+    """tool@version → unified diff of its description since ``base`` (the §6.11 report)."""
+    diffs: dict[str, str] = {}
+    current: dict[str, ToolDefinition] = workspace.definitions
+    for path in changed:
+        if not path.startswith(f"{layout.definitions_dir}/") or not path.endswith(".yaml"):
+            continue
+        tool, _, version = (
+            path.removeprefix(f"{layout.definitions_dir}/").removesuffix(".yaml").partition("/")
+        )
+        new = current.get(f"{tool}@{version}")
+        old_text = repo.show(base, path)
+        try:
+            old = None if old_text is None else parse_yaml_model(ToolDefinition, old_text)
+        except ConfigFileError:
+            old = None
+        before = "" if old is None else old.description
+        after = "" if new is None else new.description
+        if before != after:
+            diffs[f"{tool}@{version}"] = "".join(
+                difflib.unified_diff(
+                    before.splitlines(keepends=True) or [""],
+                    after.splitlines(keepends=True) or [""],
+                    fromfile=f"{base}:{path}",
+                    tofile=path,
+                )
+            )
+    return diffs

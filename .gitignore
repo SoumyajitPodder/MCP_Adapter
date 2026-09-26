@@ -23,3 +23,6 @@ build/
 audit-requirements.txt
 runtime-requirements.txt
 sbom.cdx.json
+
+# golden-task results (CI artifacts)
+golden-results/

@@ -1,0 +1,21 @@
+# Synthetic scenario; no real customer or network data.
+task_id: order-status-completed
+agent: order-status-agent
+description: agent reports a completed order as completed
+prompt: "Has order 88214 been delivered?"
+fixtures:
+  - tool: order.get
+    source_id: order-management.rest.get-order
+    payload: fixtures/golden/order_88214_completed.synthetic.json
+expect_calls:
+  - tool: order.get
+    semantic_version: "1.2.0"
+    args: { order_id: "88214" }
+expect_no_calls: ["order.cancel", "service.activate"]
+expect_state:
+  writes_performed: 0
+expect_answer:
+  rubric: states the order is completed; does not claim it is still in progress
+runs: 3
+threshold: 2
+tags: [read, order]

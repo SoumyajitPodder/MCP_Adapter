@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "ContractType": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "enum",
+        "datetime"
+      ],
+      "title": "ContractType",
+      "type": "string"
+    },
+    "InputField": {
+      "additionalProperties": false,
+      "description": "One tool argument.",
+      "properties": {
+        "description": {
+          "default": "",
+          "description": "What the argument means, for the agent.",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "description": "Argument name.",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "description": "Whether the argument must be present.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/ContractType",
+          "description": "Canonical type."
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allowed values for enums.",
+          "title": "Values"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "InputField",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What ``tools/list`` shows an agent for one tool version.",
+  "properties": {
+    "description": {
+      "description": "Agent-facing description.",
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "inputs": {
+      "default": [],
+      "description": "Arguments.",
+      "items": {
+        "$ref": "#/$defs/InputField"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "tool": {
+      "description": "Tool name.",
+      "minLength": 1,
+      "title": "Tool",
+      "type": "string"
+    },
+    "version": {
+      "description": "Tool version.",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tool",
+    "version",
+    "description"
+  ],
+  "title": "ToolDefinition",
+  "type": "object"
+}

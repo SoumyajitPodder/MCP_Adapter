@@ -7,6 +7,45 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-26 — Session 16: M5a (golden-task core, offline) implemented
+
+The owner approved the Session 15 design and the recommended answers to M5-Q1 and M5-Q3–Q9, on condition that they fit production practice and the brief. Three of them were adjusted to meet that bar; D-074 records the result.
+
+| ID | Decision | Status |
+| --- | --- | --- |
+| D-074 | Approved as recommended, with these adjustments: (1) M5-Q4: agent-facing tool definitions live in `catalog/definitions/<tool>/<version>.yaml`, outside the released-contract lock, because §6.9 allows description-only edits without a version bump and editing a released contract fails contract CI. Inputs use the contract field vocabulary and render to JSON Schema. (2) M5-Q3: the in-process egress guard is a tripwire, not isolation (native code and child processes bypass it); a network-less container is required before any real agent or model key runs in CI. (3) `golden run` refuses to run (exit 3) until a production harness exists, instead of passing a scripted fake off as an agent. M5-Q2 (LLM provider and SDK) stays open for M5b. | approved by owner |
+
+Built:
+- the `golden` component:
+  - task, agent-config, quarantine and tool-definition models; lint with 17 rules;
+  - the deterministic assertion layers; the judge port with verdict validation and calibration; run and task verdicts; the promotion gate; change selection and input digests; the Markdown report;
+  - `GoldenRunner`, and a sandbox that runs the real pipeline per run: authentication, access, a definition-based input stage, idempotency, then a fixture-serving stub backend that obtains scoped credentials;
+  - adapters for files, git and the egress tripwire; `ScriptedAgent`, `ScriptedJudge` and `RecordingEgressGuard` fakes;
+- CLI `golden lint|select|run|gate`, settings `ADAPTER_GOLDEN_*`, a CI `golden-lint` job, CODEOWNERS on `golden_tasks/quarantine.yaml`;
+- pilot content: definitions for the three read-only tools, `order-status-agent` config, four synthetic tasks with fixtures, an empty quarantine list.
+
+Verified:
+- 525 unit/property tests (96.4% coverage) and 16 Postgres integration tests.
+- Every lint rule fires on a synthetic repo; the pilot tasks lint clean.
+- With `ScriptedAgent` on a synthetic repo that has a mutating tool: every layer and every error kind is produced on purpose. Writes go through §7 (a call with no key fails the state layer). A denied attempt at a forbidden tool fails the sequence layer.
+- The offline half of §6.11: after a tool description changes, `golden select` names the task with the reason, and the `golden run` report shows the description diff and the failing layer.
+- `golden gate` exit codes for pass, missing, stale, incomplete, no coverage, quarantine and waiver.
+
+Not proven yet: that a misleading description changes an agent's behavior (§6.11), and the mutation canaries. Both need an agent that reads (M5b, or a team's own agent).
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-075 | Fixtures are linted against the tool's canonical contract (default version) | Fixtures that drift from the contract would test a tool that doesn't exist | pending |
+| D-076 | Calls are recorded by the sandbox, not reported by the agent; a denied attempt at a forbidden tool still fails | The attempt is the behavior; an agent can't under-report its own calls | pending |
+| D-077 | The sandbox inserts a definition-based `input.validate` stage after access | Stand-in for the §1.3 validation stage (Romik). Validating before access would leak which tools exist. | pending |
+| D-078 | The gate fails closed on missing, stale (input digest changed), incomplete and uncovered tools; a waiver in `quarantine.yaml` releases a quarantined task's block | Promotion needs current, passing evidence; the waiver is the audited escape hatch (R-013) | pending |
+| D-079 | `golden run` exits 2 when tasks are `incomplete` (not judged, judge uncalibrated) | Distinct from a failure, never a pass | pending |
+| D-080 | Changes to adapter code, the catalog, contracts or mappings re-run the whole suite | Conservative: those change behavior for every task | pending |
+| D-081 | `expect_no_calls` may name tools not in the catalog | Forbidding a tool before it exists is useful (e.g. `order.cancel` for read agents); expected calls must exist | pending |
+| D-082 | `inventory.snapshot` has no golden coverage: no agent is granted it | Its gate fails with `NO_COVERAGE` until an agent and tasks exist | pending |
+
+---
+
 ## 2026-09-26 — Session 15: M5 (golden tasks, §6) design proposal
 
 M3 was pushed (`1789c52` on `origin/shaswat_changes`). Status of this section: **`pending`**, except the two decisions below. Nothing here is implemented. Implementation needs owner approval of the design and answers to M5-Q1–Q9.

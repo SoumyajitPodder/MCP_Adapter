@@ -1,6 +1,6 @@
 # adapter_verify — Specification (LLD §5–9)
 
-> **Status:** M0, M1 (§8), M2 (§9), M3 (§7) and M4 (§5) implemented; M5 not started. Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
+> **Status:** M0, M1 (§8), M2 (§9), M3 (§7), M4 (§5) and M5a (§6, offline core) implemented; M5b (LLM agents and judge) pending. Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
 >
 > Hand-written sections explain **why**. Generated sections state **what**.
 
@@ -255,6 +255,13 @@ All config comes from `ADAPTER_*` environment variables and is validated at star
 | `ADAPTER_CONTRACT_INFERRED_MIN_SAMPLES` | `int` | `200` | no | Samples needed before an observed shape is OBSERVED (M4-Q1). |
 | `ADAPTER_CONTRACT_INFERRED_MIN_DAYS` | `int` | `7` | no | Days the samples must span before a shape is OBSERVED. |
 | `ADAPTER_CONTRACT_RENAME_THRESHOLD` | `float` | `0.6` | no | Name similarity for FIELD_RENAMED_SUSPECTED. |
+| `ADAPTER_GOLDEN_ROOT` | `Path` | `WindowsPath('.')` | no | Repository root. |
+| `ADAPTER_GOLDEN_TASKS_DIR` | `Path` | `WindowsPath('golden_tasks')` | no | Task files and agent configs. |
+| `ADAPTER_GOLDEN_DEFINITIONS_DIR` | `Path` | `WindowsPath('catalog/definitions')` | no | Tool descriptions and inputs. |
+| `ADAPTER_GOLDEN_CALIBRATION_DIR` | `Path` | `WindowsPath('tests/golden_selftest/calibration')` | no | Judge calibration cases. |
+| `ADAPTER_GOLDEN_RESULTS_DIR` | `Path` | `WindowsPath('golden-results')` | no | Where results go. |
+| `ADAPTER_GOLDEN_TOKEN_BUDGET` | `Optional[Annotated[int, FieldInfo(annotation=NoneType, required=True, metadata=[Ge(ge=1)])]]` | `None` | no | Suite token budget; runs stop when it is spent. Measure first. |
+| `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS` | `tuple[str, ...]` | `()` | no | Hosts a run may reach (none until an LLM harness exists). |
 <!-- END GENERATED -->
 
 ## 5. Contract testing in CI
@@ -317,11 +324,178 @@ See the gate bullet above and §11 (`contract check`).
 
 ## 6. Golden-task regression
 
-*Milestone M5. Not started.*
+*Milestone M5a (offline core) implemented; M5b (LLM agents and judge) pending the provider decision (DESIGN.md D-073, D-074). Tests: `tests/unit/golden/`, `tests/unit/cli/test_golden_cli.py`.*
+
+- **Task files:** `golden_tasks/<agent>/<task_id>.yaml` (schema below), one `agent.yaml` per agent, and `golden_tasks/quarantine.yaml`.
+  - Fixtures are canonical tool output in `fixtures/golden/<name>.synthetic.json`, checked against the tool's contract.
+  - `golden lint` runs in CI.
+- **Tool definitions:** `catalog/definitions/<tool>/<version>.yaml` holds the description and inputs an agent sees in `tools/list`. This is a synthetic stand-in for the registry.
+  - Definitions are outside the released-contract lock: a description edit needs no version bump (§6.9), but it re-runs the tasks that touch the tool.
+- **Sandbox:** every run gets a fresh copy of the real pipeline: authentication → `access.check` → `input.validate` (the definition) → `idempotency.reserve` → stub backend.
+  - Stores are in memory and the secret manager returns sentinels. The stub backend serves fixtures and counts calls and acknowledged writes.
+  - Outbound connections are blocked by an in-process tripwire, not isolation: native code and child processes aren't covered.
+- **Agent:** runs behind `AgentHarness`. It sees only the tools `tools/list` allows. Calls are recorded by the sandbox, not taken from the agent.
+  - No production harness exists yet, so `golden run` exits 3 naming the agent. `ScriptedAgent` drives the tests.
+- **Layers, in order, first failure wins:**
+  1. **calls:** tool, version, arguments (JSON equality);
+  2. **sequence:** forbidden tools (even denied attempts), order, `exact_calls`;
+  3. **state:** writes and per-tool calls at the stub backend;
+  4. **answer:** the judge. Without one, runs are `not_judged` and the task is `incomplete`, which never passes a gate.
+- **Run errors:** `budget_exceeded` (calls, time, tokens, suite budget), `egress_blocked`, `sentinel_leak`, `harness_error`, `judge_error`. An error is a failed run, never retried.
+- **Verdict:** `pass` at `threshold` passing runs. Tasks that write must pass every run (lint). A task that fails twice in a row on unchanged inputs is reported as *quarantine recommended*; quarantine itself is a reviewed PR.
+- **Selection:** `--changed-since <ref>` re-runs the tasks whose definition, fixture, task file, agent config or policy changed. Adapter code, catalog or contract changes re-run everything.
+- **Results:** a JSON file per suite run (`SuiteResults`, schema version 1), plus a Markdown report showing expected vs actual per failure and a diff of every changed tool description.
+- **Gate:** `golden gate --tool T --version V --results F` passes only on current (same input digest), passing evidence for every task touching `T@V`. Missing, stale, incomplete or zero coverage fails. A quarantined task blocks unless a waiver names the tool.
 
 ### 6.1 Task file schema
 <!-- BEGIN GENERATED: golden-task-schema -->
-_Not implemented yet (M5)._
+JSON Schemas: `docs/schemas/GoldenTask.json`, `AgentConfig.json`, `QuarantineList.json`, `ToolDefinition.json`, `CalibrationCase.json`, `SuiteResults.json` (results schema version 1).
+
+#### `GoldenTask`
+
+One golden task (§6.1). Unknown keys are rejected.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `task_id` | `str` | yes | Unique; equals the file name. |
+| `agent` | `str` | yes | Agent under test; the directory. |
+| `description` | `str` | yes | What the task proves. |
+| `prompt` | `str` | yes | What the agent is asked. |
+| `fixtures` | `tuple[FixtureRef, ...]` | no | Stub backend answers. |
+| `expect_calls` | `tuple[ExpectedCall, ...]` | no | Required calls. |
+| `ordered` | `bool` | no | expect_calls must occur in this order (other calls may interleave). |
+| `exact_calls` | `bool` | no | No calls beyond expect_calls. |
+| `expect_no_calls` | `tuple[str, ...]` | no | Tools the agent must not even attempt. |
+| `expect_state` | `ExpectedState \| None` | no | Stub backend end state. |
+| `expect_answer` | `ExpectedAnswer \| None` | no | Judged final answer. |
+| `runs` | `int` | yes | Repeats per suite run. |
+| `threshold` | `int` | yes | Passing runs needed. |
+| `tags` | `tuple[str, ...]` | no | Free-form labels. |
+
+#### `FixtureRef`
+
+What the stub backend returns for calls to one tool (canonical output, synthetic).
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tool` | `str` | yes | Tool the fixture answers for. |
+| `source_id` | `str \| None` | no | Upstream source it stands for (§5); used once connectors exist. |
+| `payload` | `str` | yes | Repo-relative path: fixtures/golden/<name>.synthetic.json. |
+| `when` | `JsonObject \| None` | no | Serve only for calls whose arguments contain these values; None: any call. |
+
+#### `ExpectedCall`
+
+
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tool` | `str` | yes | Tool the agent must call. |
+| `semantic_version` | `str \| None` | no | Required resolved version; None accepts any. |
+| `args` | `JsonObject` | no | Expected arguments. |
+| `args_match` | `ArgsMatch` | no | exact: arguments equal; subset: these keys with these values. JSON equality. |
+
+#### `ExpectedState`
+
+
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `writes_performed` | `int \| None` | no | State-changing calls the stub backend acknowledged. |
+| `calls_by_tool` | `dict[str, int]` | no | Calls that reached the stub backend, per tool. |
+
+#### `ExpectedAnswer`
+
+
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `rubric` | `str` | yes | What a correct final answer says (§6.5). |
+
+#### `AgentConfig`
+
+``golden_tasks/<agent_id>/agent.yaml``: how to run one agent under test.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `agent_id` | `str` | yes | Agent; equals the directory. |
+| `harness` | `str` | yes | Harness kind that runs the agent. |
+| `model` | `str \| None` | no | Pinned model ID, recorded with results. |
+| `limits` | `RunLimits` | no | Per-run limits. |
+
+#### `RunLimits`
+
+Per-run limits (§6.3). Crossing any is BUDGET_EXCEEDED, never retried.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `max_tool_calls` | `int` | no | Calls per run. |
+| `timeout_s` | `float` | no | Wall-clock per run. |
+| `max_tokens` | `int \| None` | no | Tokens per run, as reported by the harness. |
+
+#### `QuarantineEntry`
+
+
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `task_id` | `str` | yes | Quarantined task. |
+| `owner` | `str` | yes | Who fixes it. |
+| `reason` | `str` | yes | Why it is quarantined. |
+| `since` | `str` | yes | YYYY-MM-DD, quoted. |
+| `waiver` | `Waiver \| None` | no | Promotion waiver, if any. |
+
+#### `Waiver`
+
+Lets named tools be promoted while a task that touches them is quarantined (R-013).
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tools` | `tuple[str, ...]` | yes | Tools released from the block. |
+| `approved_by` | `str` | yes | Who accepted the risk. |
+| `reason` | `str` | yes | Why. |
+
+#### `ToolDefinition`
+
+What ``tools/list`` shows an agent for one tool version.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tool` | `str` | yes | Tool name. |
+| `version` | `str` | yes | Tool version. |
+| `description` | `str` | yes | Agent-facing description. |
+| `inputs` | `tuple[InputField, ...]` | no | Arguments. |
+
+#### `InputField`
+
+One tool argument.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | `str` | yes | Argument name. |
+| `type` | `ContractType` | yes | Canonical type. |
+| `values` | `tuple[str, ...] \| None` | no | Allowed values for enums. |
+| `required` | `bool` | no | Whether the argument must be present. |
+| `description` | `str` | no | What the argument means, for the agent. |
+
+| Lint rule | Fails when |
+| --- | --- |
+| `GOLDEN_SCHEMA` | a task, agent config, definition or quarantine file does not validate |
+| `GOLDEN_FILE_NAME_MISMATCH` | files must be <agent>/<task_id>.yaml and <agent>/agent.yaml |
+| `GOLDEN_DUPLICATE_ID` | two tasks share a task_id |
+| `GOLDEN_UNKNOWN_TOOL` | a fixture or expected call names a tool that is not in the catalog |
+| `GOLDEN_UNKNOWN_VERSION` | an expected call pins a version that is not in the catalog |
+| `GOLDEN_UNKNOWN_AGENT` | the task's agent has no access policy |
+| `GOLDEN_AGENT_CONFIG_MISSING` | the task's agent has no agent.yaml |
+| `GOLDEN_TOOL_NOT_GRANTED` | an expected call is not granted to the agent (can never pass) |
+| `GOLDEN_EXPECT_CONFLICT` | a tool is both expected and forbidden |
+| `GOLDEN_ARGS_INVALID` | expected arguments violate the tool's input definition |
+| `GOLDEN_FIXTURE_MISSING` | a fixture file is absent or not a JSON object |
+| `GOLDEN_FIXTURE_NOT_SYNTHETIC` | fixtures must be fixtures/golden/<name>.synthetic.json |
+| `GOLDEN_FIXTURE_CONTRACT` | a fixture does not match the tool's canonical contract |
+| `GOLDEN_THRESHOLD` | threshold exceeds runs, or a writing task doesn't require every run |
+| `GOLDEN_DEFINITION_MISSING` | a catalog tool version has no definition |
+| `GOLDEN_DEFINITION_ORPHAN` | a definition has no catalog entry, or its file name is wrong |
+| `GOLDEN_QUARANTINE_UNKNOWN_TASK` | quarantine.yaml names a task that doesn't exist |
 <!-- END GENERATED -->
 
 ## 7. Duplicate prevention
@@ -626,6 +800,10 @@ One released tool version. Stand-in for the tool registry (brief §1) until it e
 | `IdempotencyStore` | `idempotency.ports` | `PostgresIdempotencyStore` | `MemoryIdempotencyStore` | M3 |
 | `OwnerAlerts` | `idempotency.ports` | `LogOwnerAlerts` (interim; channel TBD) | `MemoryOwnerAlerts` | M3 |
 | `Reconciler` | `idempotency.ports` | *none in Phase 1: people resolve `UNKNOWN`* | — | M3 |
+| `AgentHarness` | `golden.ports` | *none until M5b* | `ScriptedAgent` | M5 |
+| `Judge` | `golden.ports` | *none until M5b* | `ScriptedJudge` | M5 |
+| `SandboxFactory` / `SandboxSession` | `golden.ports` | `GoldenSandbox` (wired in `composition`) | — | M5 |
+| `EgressGuard` | `golden.ports` | `SocketEgressGuard` (tripwire) | `RecordingEgressGuard` | M5 |
 | `Next`, `Stage` | `adapter_kernel.pipeline` | `AccessStage`, `IdempotencyStage`; order fixed in `composition.stage_order` | `FaultyConnector` (stub backend, every delivery outcome) | M0 |
 
 Contract suites that every adapter of a port must pass live in `tests/contracts.py`.
@@ -712,6 +890,47 @@ Apply pending forward-only migrations.
 | Option | Type | Default | Required | Meaning |
 | --- | --- | --- | --- | --- |
 | `--migrations-dir` | `directory` | `migrations` | no | Directory of NNNN_name.sql files. |
+
+#### `adapter-verify golden gate`
+
+Promotion gate (brief 6.9). Exit 0 pass, 1 fail or stale, 2 blocked by quarantine.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `--tool` | `text` | — | yes | Tool being promoted. |
+| `--version` | `text` | — | yes | Version being promoted. |
+| `--results` | `file` | — | yes | Results of the suite run to judge the promotion on. |
+
+#### `adapter-verify golden lint`
+
+Check task files, agent configs, tool definitions and fixtures. Exit 1 on findings.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| — | | | | no options |
+
+#### `adapter-verify golden run`
+
+Run golden tasks. Exit 0 all pass, 1 any fail, 2 incomplete (not judged), 3 tool error.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `--task` | `text` | — | no | Run this task (repeatable). |
+| `--agent` | `text` | — | no | Run this agent's tasks (repeatable). |
+| `--tool` | `text` | — | no | Run tasks touching this tool (repeatable). |
+| `--all` | `boolean` | — | no | Run every task. |
+| `--changed-since` | `text` | — | no | Run tasks affected since this ref. |
+| `--previous` | `file` | — | no | Earlier results, for quarantine recommendations. |
+| `--results` | `file` | — | no | Results file. |
+| `--report` | `file` | — | no | Markdown report. |
+
+#### `adapter-verify golden select`
+
+Print the tasks a change affects, with the reason (brief 6.7).
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `--changed-since` | `text` | — | yes | Git ref to compare against. |
 
 #### `adapter-verify idem purge`
 

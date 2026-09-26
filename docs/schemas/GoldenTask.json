@@ -1,0 +1,273 @@
+{
+  "$defs": {
+    "ArgsMatch": {
+      "enum": [
+        "exact",
+        "subset"
+      ],
+      "title": "ArgsMatch",
+      "type": "string"
+    },
+    "ExpectedAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "rubric": {
+          "description": "What a correct final answer says (§6.5).",
+          "minLength": 1,
+          "title": "Rubric",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rubric"
+      ],
+      "title": "ExpectedAnswer",
+      "type": "object"
+    },
+    "ExpectedCall": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/JsonObject",
+          "description": "Expected arguments."
+        },
+        "args_match": {
+          "$ref": "#/$defs/ArgsMatch",
+          "default": "exact",
+          "description": "exact: arguments equal; subset: these keys with these values. JSON equality."
+        },
+        "semantic_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required resolved version; None accepts any.",
+          "title": "Semantic Version"
+        },
+        "tool": {
+          "description": "Tool the agent must call.",
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "ExpectedCall",
+      "type": "object"
+    },
+    "ExpectedState": {
+      "additionalProperties": false,
+      "properties": {
+        "calls_by_tool": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Calls that reached the stub backend, per tool.",
+          "title": "Calls By Tool",
+          "type": "object"
+        },
+        "writes_performed": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "State-changing calls the stub backend acknowledged.",
+          "title": "Writes Performed"
+        }
+      },
+      "title": "ExpectedState",
+      "type": "object"
+    },
+    "FixtureRef": {
+      "additionalProperties": false,
+      "description": "What the stub backend returns for calls to one tool (canonical output, synthetic).",
+      "properties": {
+        "payload": {
+          "description": "Repo-relative path: fixtures/golden/<name>.synthetic.json.",
+          "title": "Payload",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upstream source it stands for (§5); used once connectors exist.",
+          "title": "Source Id"
+        },
+        "tool": {
+          "description": "Tool the fixture answers for.",
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JsonObject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Serve only for calls whose arguments contain these values; None: any call."
+        }
+      },
+      "required": [
+        "tool",
+        "payload"
+      ],
+      "title": "FixtureRef",
+      "type": "object"
+    },
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "One golden task (§6.1). Unknown keys are rejected.",
+  "properties": {
+    "agent": {
+      "description": "Agent under test; the directory.",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Agent",
+      "type": "string"
+    },
+    "description": {
+      "description": "What the task proves.",
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "exact_calls": {
+      "default": false,
+      "description": "No calls beyond expect_calls.",
+      "title": "Exact Calls",
+      "type": "boolean"
+    },
+    "expect_answer": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExpectedAnswer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Judged final answer."
+    },
+    "expect_calls": {
+      "default": [],
+      "description": "Required calls.",
+      "items": {
+        "$ref": "#/$defs/ExpectedCall"
+      },
+      "title": "Expect Calls",
+      "type": "array"
+    },
+    "expect_no_calls": {
+      "default": [],
+      "description": "Tools the agent must not even attempt.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Expect No Calls",
+      "type": "array"
+    },
+    "expect_state": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExpectedState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stub backend end state."
+    },
+    "fixtures": {
+      "default": [],
+      "description": "Stub backend answers.",
+      "items": {
+        "$ref": "#/$defs/FixtureRef"
+      },
+      "title": "Fixtures",
+      "type": "array"
+    },
+    "ordered": {
+      "default": true,
+      "description": "expect_calls must occur in this order (other calls may interleave).",
+      "title": "Ordered",
+      "type": "boolean"
+    },
+    "prompt": {
+      "description": "What the agent is asked.",
+      "minLength": 1,
+      "title": "Prompt",
+      "type": "string"
+    },
+    "runs": {
+      "description": "Repeats per suite run.",
+      "maximum": 10,
+      "minimum": 1,
+      "title": "Runs",
+      "type": "integer"
+    },
+    "tags": {
+      "default": [],
+      "description": "Free-form labels.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "task_id": {
+      "description": "Unique; equals the file name.",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "threshold": {
+      "description": "Passing runs needed.",
+      "minimum": 1,
+      "title": "Threshold",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "task_id",
+    "agent",
+    "description",
+    "prompt",
+    "runs",
+    "threshold"
+  ],
+  "title": "GoldenTask",
+  "type": "object"
+}

@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "RunLimits": {
+      "additionalProperties": false,
+      "description": "Per-run limits (§6.3). Crossing any is BUDGET_EXCEEDED, never retried.",
+      "properties": {
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tokens per run, as reported by the harness.",
+          "title": "Max Tokens"
+        },
+        "max_tool_calls": {
+          "default": 20,
+          "description": "Calls per run.",
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Tool Calls",
+          "type": "integer"
+        },
+        "timeout_s": {
+          "default": 120.0,
+          "description": "Wall-clock per run.",
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Timeout S",
+          "type": "number"
+        }
+      },
+      "title": "RunLimits",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``golden_tasks/<agent_id>/agent.yaml``: how to run one agent under test.",
+  "properties": {
+    "agent_id": {
+      "description": "Agent; equals the directory.",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "harness": {
+      "description": "Harness kind that runs the agent.",
+      "minLength": 1,
+      "title": "Harness",
+      "type": "string"
+    },
+    "limits": {
+      "$ref": "#/$defs/RunLimits",
+      "description": "Per-run limits."
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Pinned model ID, recorded with results.",
+      "title": "Model"
+    }
+  },
+  "required": [
+    "agent_id",
+    "harness"
+  ],
+  "title": "AgentConfig",
+  "type": "object"
+}

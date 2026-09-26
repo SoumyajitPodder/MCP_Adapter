@@ -1,0 +1,4 @@
+# Quarantined golden tasks (brief 6.6, DESIGN.md R-013). Changed only by reviewed PR.
+# A quarantined task is reported but doesn't gate; it blocks promotion of every tool it
+# touches unless a waiver names the tool. Dates are quoted strings.
+entries: []

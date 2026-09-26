@@ -127,6 +127,30 @@ class ContractSettings(BaseSettings):
     )
 
 
+class GoldenSettings(BaseSettings):
+    """Section 6 settings. Environment prefix ``ADAPTER_GOLDEN_``. Paths are repo-relative."""
+
+    model_config = SettingsConfigDict(env_prefix="ADAPTER_GOLDEN_", frozen=True, extra="forbid")
+
+    root: Path = Field(default=Path(), description="Repository root.")
+    tasks_dir: Path = Field(
+        default=Path("golden_tasks"), description="Task files and agent configs."
+    )
+    definitions_dir: Path = Field(
+        default=Path("catalog/definitions"), description="Tool descriptions and inputs."
+    )
+    calibration_dir: Path = Field(
+        default=Path("tests/golden_selftest/calibration"), description="Judge calibration cases."
+    )
+    results_dir: Path = Field(default=Path("golden-results"), description="Where results go.")
+    token_budget: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, description="Suite token budget; runs stop when it is spent. Measure first."
+    )
+    egress_allowed_hosts: tuple[str, ...] = Field(
+        default=(), description="Hosts a run may reach (none until an LLM harness exists)."
+    )
+
+
 class DatabaseSettings(BaseSettings):
     """Postgres connection. Environment prefix ``ADAPTER_DATABASE_``.
 

@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "AnswerEvidence": {
+      "additionalProperties": false,
+      "description": "Everything the judge sees: the question, the tool results shown to the agent, its answer.",
+      "properties": {
+        "answer": {
+          "title": "Answer",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "tool_results": {
+          "description": "Agent-visible results, in order.",
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          },
+          "title": "Tool Results",
+          "type": "array"
+        }
+      },
+      "required": [
+        "prompt",
+        "tool_results",
+        "answer"
+      ],
+      "title": "AnswerEvidence",
+      "type": "object"
+    },
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "A transcript with a known verdict (``tests/golden_selftest/calibration/*.yaml``).",
+  "properties": {
+    "case_id": {
+      "minLength": 1,
+      "title": "Case Id",
+      "type": "string"
+    },
+    "evidence": {
+      "$ref": "#/$defs/AnswerEvidence"
+    },
+    "expected_pass": {
+      "title": "Expected Pass",
+      "type": "boolean"
+    },
+    "rubric": {
+      "minLength": 1,
+      "title": "Rubric",
+      "type": "string"
+    }
+  },
+  "required": [
+    "case_id",
+    "rubric",
+    "evidence",
+    "expected_pass"
+  ],
+  "title": "CalibrationCase",
+  "type": "object"
+}
