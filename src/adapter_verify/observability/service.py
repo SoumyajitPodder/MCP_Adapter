@@ -15,6 +15,7 @@ from adapter_kernel.meta import ResponseMeta
 from adapter_kernel.pipeline import ToolFailure, ToolRequest, ToolResult
 from adapter_verify.common.model import FrozenModel
 from adapter_verify.common.ports import Clock, Entropy
+from adapter_verify.idempotency.domain.keys import is_valid_key
 from adapter_verify.observability.context import bound
 from adapter_verify.observability.domain.attributes import Outcome, SpanAttributes, SpanName
 from adapter_verify.observability.domain.events import CallEvent
@@ -136,9 +137,8 @@ class ObservedEntry:
                 latency_ms=latency_ms,
                 outcome=status,
                 error_code=error_code,
-                # TODO(M3): §7.2 key rules replace this check. Until then an unvalidated
-                # caller string never reaches a log sink.
-                idempotency_key=key if key is not None and is_valid_correlation_id(key) else None,
+                # An invalid key is rejected by §7; it never reaches a log sink.
+                idempotency_key=key if key is not None and is_valid_key(key) else None,
             )
         )
 

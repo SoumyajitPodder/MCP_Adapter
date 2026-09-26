@@ -84,6 +84,28 @@ class AccessSettings(BaseSettings):
         return value
 
 
+class IdempotencySettings(BaseSettings):
+    """Section 7 settings. Environment prefix ``ADAPTER_IDEMPOTENCY_``. Overrides are JSON
+    objects keyed by tool name (M3-Q2)."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="ADAPTER_IDEMPOTENCY_", frozen=True, extra="forbid"
+    )
+
+    lease_s: Annotated[int, Field(ge=1, le=3_600)] = Field(
+        default=30, description="Reservation lease. Must exceed the connector timeout."
+    )
+    retention_h: Annotated[int, Field(ge=1, le=8_760)] = Field(
+        default=72, description="Record retention. Never shorter than any agent's retry window."
+    )
+    lease_overrides_s: dict[str, int] = Field(
+        default_factory=dict, description='Per-tool lease, e.g. {"order.cancel": 60}.'
+    )
+    retention_overrides_h: dict[str, int] = Field(
+        default_factory=dict, description="Per-tool retention in hours."
+    )
+
+
 class ContractSettings(BaseSettings):
     """Section 5 settings. Environment prefix ``ADAPTER_CONTRACT_``. Paths are repo-relative."""
 

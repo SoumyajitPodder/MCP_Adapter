@@ -1,6 +1,6 @@
 # adapter_verify — Specification (LLD §5–9)
 
-> **Status:** M0, M1 (§8), M2 (§9) and M4 (§5) implemented; M3 and M5 not started. Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
+> **Status:** M0, M1 (§8), M2 (§9), M3 (§7) and M4 (§5) implemented; M5 not started. Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
 >
 > Hand-written sections explain **why**. Generated sections state **what**.
 
@@ -243,6 +243,10 @@ All config comes from `ADAPTER_*` environment variables and is validated at star
 | `ADAPTER_ACCESS_JWKS_TTL_S` | `int` | `300` | no | Signing keys older than this are never used. |
 | `ADAPTER_ACCESS_SECRET_CACHE_TTL_S` | `int` | `60` | no | Scoped credential cache lifetime. |
 | `ADAPTER_ACCESS_POLICY_RELOAD_INTERVAL_S` | `int` | `30` | no | How often policies are re-read; bad sets are rejected. |
+| `ADAPTER_IDEMPOTENCY_LEASE_S` | `int` | `30` | no | Reservation lease. Must exceed the connector timeout. |
+| `ADAPTER_IDEMPOTENCY_RETENTION_H` | `int` | `72` | no | Record retention. Never shorter than any agent's retry window. |
+| `ADAPTER_IDEMPOTENCY_LEASE_OVERRIDES_S` | `dict[str, int]` | `{}` | no | Per-tool lease, e.g. {"order.cancel": 60}. |
+| `ADAPTER_IDEMPOTENCY_RETENTION_OVERRIDES_H` | `dict[str, int]` | `{}` | no | Per-tool retention in hours. |
 | `ADAPTER_CONTRACT_ROOT` | `Path` | `WindowsPath('.')` | no | Repository root; sample paths resolve here. |
 | `ADAPTER_CONTRACT_SOURCES_DIR` | `Path` | `WindowsPath('sources')` | no | Upstream source definitions. |
 | `ADAPTER_CONTRACT_BASELINES_DIR` | `Path` | `WindowsPath('baselines')` | no | Accepted shapes. |
@@ -322,10 +326,91 @@ _Not implemented yet (M5)._
 
 ## 7. Duplicate prevention
 
-*Milestone M3. Not started.*
+*Milestone M3. Implemented. Acceptance: `tests/integration/test_acceptance_idempotency.py` (50 concurrent calls, one upstream call; key conflict) and `tests/integration/test_idempotency_crash.py` (process killed mid-call). State machine: `tests/property/test_idempotency_state_machine.py`.*
+
+- **Which calls:** `IdempotencyStage` runs after access control (lifecycle and input validation will sit between them). Read-only tools pass through.
+- **Key:** state-changing tools need `_meta["adapter/idempotency-key"]` matching `[A-Za-z0-9._:-]{1,128}`.
+  - A missing key gets `IDEMPOTENCY_KEY_REQUIRED`; an invalid one gets `INVALID_INPUT`. Keys are never derived or truncated.
+  - Keys are scoped by `(agent_id, tool, key)`.
+- **Fingerprint:** SHA-256 of the arguments in RFC 8785 (JCS) form, so key order and whitespace don't matter.
+  - Arguments with no JCS form (non-finite floats, integers beyond ±2^53) get `INVALID_INPUT`.
+  - The same key with other arguments, or with another tool version, gets `IDEMPOTENCY_KEY_CONFLICT`.
+- **Reserve:** one `INSERT … ON CONFLICT DO NOTHING`. Re-reserving a `FAILED_RETRYABLE` row is a conditional `UPDATE` that rotates `attempt_id`.
+  - The reservation is audited before anything is sent. If that write fails, the key is released and the agent gets `INTERNAL`.
+- **Existing key** (§7.5):
+
+| Stored | Agent gets | Upstream call |
+| --- | --- | --- |
+| `COMPLETED` | the stored result or error, `_meta.replayed = true` | no |
+| `RESERVED`, lease running | `DUPLICATE_IN_PROGRESS`, `retry_after_ms` = remaining lease (at least 100) | no |
+| `RESERVED`, lease expired | `RECONCILIATION_PENDING` | no |
+| `UNKNOWN` | `RECONCILIATION_PENDING` | no |
+| `FAILED_RETRYABLE` | a new attempt | yes |
+
+- **Settle** (from the connector's `DeliveryStatus`):
+
+| Outcome | New state | Agent gets | Alert |
+| --- | --- | --- | --- |
+| success | `COMPLETED`, result in the payload store | the result | `success_without_ack` if not `ACKED` |
+| failure, delivery `None`, `NOT_SENT` or `REJECTED_NO_EFFECT` | `FAILED_RETRYABLE` | the failure | — |
+| failure, `SENT_NO_RESPONSE`; or an exception | `UNKNOWN` | `RECONCILIATION_PENDING` (an exception is re-raised: `INTERNAL`) | `outcome_unknown` |
+| failure, `ACKED` | `COMPLETED` with `error_code` | the error; `INTERNAL` if the error would invite a retry | `effect_with_error` |
+
+- **Fencing:** every settlement applies only while the row still holds this attempt's `attempt_id`.
+  - If the sweeper moved the row to `UNKNOWN` first, the agent gets `RECONCILIATION_PENDING`.
+  - Exception: an `ACKED` completion by the same attempt moves `UNKNOWN → COMPLETED`, and the move is audited.
+- **Failure handling:**
+  - A result that can't be stored becomes `UNKNOWN`.
+  - A settlement that can't be written leaves the row to expire into `UNKNOWN` (`settlement_failed`).
+  - A stored result that can't be read back gives `INTERNAL` (`replay_unavailable`).
+  - None of these ever re-executes.
+- **Timing:** `ADAPTER_IDEMPOTENCY_LEASE_S` (default 30) and `_RETENTION_H` (default 72), with per-tool overrides. Retention must exceed every lease.
+  - Timestamps come from the adapter's clock, so instances need synchronized clocks.
+  - TODO(owner): check at startup that each lease exceeds its connector timeout, once connector configuration exists.
+- **Operations:**
+  - `idem sweep`: expired `RESERVED` → `UNKNOWN`, audited and alerted. Run every 15 s or so.
+  - `idem purge`: deletes expired `COMPLETED`/`FAILED_RETRYABLE` rows, never `UNKNOWN`. Run daily.
+  - `idem unknown`: lists rows awaiting a person.
+  - `idem resolve --as completed|failed --reason … --operator …`: records the reason and the OS user on the operator's audit chain, and restarts retention.
+  - A row resolved as `completed` replays an empty result with warning `idempotency:resolved-manually`.
+- **Audit:** every transition is recorded as `idempotency_transition`, on the agent's chain or on `system:idempotency-sweeper`. Manual resolutions are `manual_reconciliation`.
+- **Spans:** `idempotency.reserve` (admission) and `idempotency.settle` (outcome), each with an event carrying `idempotency_state` or `replayed`.
+- **Upstream passthrough:** connectors read the key from `CallContext`; forwarding it as `Idempotency-Key` is a connector concern (§7.9).
 
 ### 7.1 State machine
-*TODO: M3.*
+
+```
+             ┌────────────── lease expires (idem sweep) ─────────┐
+             │                                                   ▼
+[RESERVED] ──┼── success, or ACKED failure ──► [COMPLETED]     [UNKNOWN] ── idem resolve ──► COMPLETED | FAILED_RETRYABLE
+             ├── provably not sent ─────────► [FAILED_RETRYABLE] ── retry re-reserves ──► RESERVED
+             └── sent, no answer; exception ─► [UNKNOWN]      (UNKNOWN ── late ACKED, same attempt ──► COMPLETED)
+```
+
+<!-- BEGIN GENERATED: idempotency-record -->
+JSON Schema: `docs/schemas/IdempotencyRecord.json`.
+
+#### `IdempotencyRecord`
+
+One idempotency record: brief §7.7 plus the fencing token and the tool version.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `key` | `RecordKey` | yes | Agent, tool and caller key. |
+| `fingerprint` | `bytes` | yes | SHA-256 of the RFC 8785 arguments. |
+| `state` | `IdemState` | yes | RESERVED, COMPLETED, FAILED_RETRYABLE or UNKNOWN. |
+| `semantic_version` | `str` | yes | Tool version of the attempt. |
+| `attempt_id` | `UUID` | yes | Fencing token of the attempt that holds the row. |
+| `correlation_id` | `str` | yes | Correlation ID of that attempt. |
+| `result_ref` | `str \| None` | yes | Payload-store reference; bodies never live here. |
+| `error_code` | `ErrorCode \| None` | yes | Post-acknowledgement failure (R-004). |
+| `lease_expires_at` | `AwareDatetime \| None` | yes | Set while RESERVED. |
+| `expires_at` | `AwareDatetime` | yes | End of retention; purge never deletes UNKNOWN. |
+| `created_at` | `AwareDatetime` | yes | First reservation. |
+| `updated_at` | `AwareDatetime` | yes | Last state change. |
+
+Owner alert kinds: `outcome_unknown`, `lease_expired`, `effect_with_error`, `success_without_ack`, `settlement_failed`, `replay_unavailable`.
+<!-- END GENERATED -->
 
 ## 8. Correlation-ID logging
 
@@ -408,7 +493,7 @@ One observable step of one tool call.
 | `mapping_id` | `str \| None` | no | Mapping used (§3). |
 | `payload_ref` | `str \| None` | no | Pointer into the payload store. Never the body. |
 
-Span names: `tool.call`, `access.authenticate`, `access.check`, `lifecycle.gate`, `input.validate`, `idempotency.reserve`, `backend.call`, `drift.absorb`, `output.validate`.
+Span names: `tool.call`, `access.authenticate`, `access.check`, `lifecycle.gate`, `input.validate`, `idempotency.reserve`, `idempotency.settle`, `backend.call`, `drift.absorb`, `output.validate`.
 
 #### `SpanAttributes`
 
@@ -538,7 +623,10 @@ One released tool version. Stand-in for the tool registry (brief §1) until it e
 | `Diagnostics` | `observability.ports` | `LogDiagnostics` | `MemoryDiagnostics` | M1 |
 | `TokenVerifier` | `access.ports` | `JwtTokenVerifier` (JWKS) | `StaticTokenVerifier` | M2 |
 | `SecretManager` | `access.ports` | `EnvSecretManager` (local dev; production pending §15) | `SentinelSecretManager` | M2 |
-| `Next`, `Stage` | `adapter_kernel.pipeline` | `AccessStage`; order fixed in `composition.stage_order` | — | M0 |
+| `IdempotencyStore` | `idempotency.ports` | `PostgresIdempotencyStore` | `MemoryIdempotencyStore` | M3 |
+| `OwnerAlerts` | `idempotency.ports` | `LogOwnerAlerts` (interim; channel TBD) | `MemoryOwnerAlerts` | M3 |
+| `Reconciler` | `idempotency.ports` | *none in Phase 1: people resolve `UNKNOWN`* | — | M3 |
+| `Next`, `Stage` | `adapter_kernel.pipeline` | `AccessStage`, `IdempotencyStage`; order fixed in `composition.stage_order` | `FaultyConnector` (stub backend, every delivery outcome) | M0 |
 
 Contract suites that every adapter of a port must pass live in `tests/contracts.py`.
 
@@ -625,6 +713,43 @@ Apply pending forward-only migrations.
 | --- | --- | --- | --- | --- |
 | `--migrations-dir` | `directory` | `migrations` | no | Directory of NNNN_name.sql files. |
 
+#### `adapter-verify idem purge`
+
+Delete expired COMPLETED and FAILED_RETRYABLE rows. UNKNOWN rows are never deleted.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `--limit` | `integer range` | `10000` | no |  |
+
+#### `adapter-verify idem resolve`
+
+Settle one UNKNOWN record by hand. Exit 1 if no UNKNOWN record has this key.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `--agent` | `text` | — | yes | Agent ID of the record. |
+| `--tool` | `text` | — | yes | Tool name of the record. |
+| `--key` | `text` | — | yes | Idempotency key of the record. |
+| `--as` | `choice` | — | yes | completed: the effect happened. failed: it did not; the key becomes reusable. |
+| `--reason` | `text` | — | yes | Why; recorded on the audit trail. |
+| `--operator` | `text` | — | yes | Operator ID; the OS user is recorded too. |
+
+#### `adapter-verify idem sweep`
+
+Mark RESERVED rows whose lease expired as UNKNOWN, audit and alert. Run on a schedule.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `--limit` | `integer range` | `1000` | no |  |
+
+#### `adapter-verify idem unknown`
+
+List rows awaiting reconciliation, oldest first.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `--limit` | `integer range` | `1000` | no |  |
+
 #### `adapter-verify policy lint`
 
 Check every policy file against the lint rules and the tool catalog. Exit 1 on findings.
@@ -676,4 +801,20 @@ Migrations are forward-only files in `migrations/`, applied by `adapter-verify d
 | `recorded_at` | `timestamptz` | Database insert time. Not covered by the hash; `event.occurred_at` is. |
 | `event` | `jsonb` | `AuditEvent`, with details already redacted. |
 
-`idempotency_records` arrives with M3.
+#### `idempotency_records` (0003)
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `agent_id`, `tool`, `idem_key` | `text` PK | Key scope (§7.2). `idem_key` is checked against the key charset. |
+| `fingerprint` | `bytea` | SHA-256 of the JCS arguments; 32 bytes. |
+| `state` | `text` | `RESERVED`, `COMPLETED`, `FAILED_RETRYABLE` or `UNKNOWN`. |
+| `semantic_version` | `text` | Tool version of the attempt; a different version conflicts. |
+| `attempt_id` | `uuid` | Fencing token; rotated on every re-reservation. |
+| `correlation_id` | `text` | The attempt's correlation ID. |
+| `result_ref` | `text` | Payload-store reference of the stored result. Never the body. |
+| `error_code` | `text` | Error recorded after an acknowledged effect. |
+| `lease_expires_at` | `timestamptz` | Required while `RESERVED`; cleared on settlement. |
+| `expires_at` | `timestamptz` | Retention; `idem purge` deletes after it (never `UNKNOWN`). |
+| `created_at`, `updated_at` | `timestamptz` | Adapter clock. |
+
+Indexes: `idem_open_states (state, lease_expires_at)` for `RESERVED`/`UNKNOWN`, and `idem_expiry (expires_at)`.

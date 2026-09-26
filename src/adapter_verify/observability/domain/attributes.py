@@ -29,6 +29,7 @@ class SpanName(StrEnum):
     LIFECYCLE_GATE = "lifecycle.gate"
     INPUT_VALIDATE = "input.validate"
     IDEMPOTENCY_RESERVE = "idempotency.reserve"
+    IDEMPOTENCY_SETTLE = "idempotency.settle"
     BACKEND_CALL = "backend.call"
     DRIFT_ABSORB = "drift.absorb"
     OUTPUT_VALIDATE = "output.validate"

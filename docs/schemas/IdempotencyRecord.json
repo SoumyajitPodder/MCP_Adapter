@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "ErrorCode": {
+      "description": "Every error an agent can receive. Nothing else is ever returned.",
+      "enum": [
+        "INVALID_INPUT",
+        "NOT_AUTHORIZED",
+        "VERSION_NOT_PERMITTED",
+        "SCOPE_VIOLATION",
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "IDEMPOTENCY_KEY_CONFLICT",
+        "DUPLICATE_IN_PROGRESS",
+        "RECONCILIATION_PENDING",
+        "DRIFT_BLOCKED",
+        "UPSTREAM_UNAVAILABLE",
+        "CONTRACT_VIOLATION",
+        "INTERNAL"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "IdemState": {
+      "enum": [
+        "RESERVED",
+        "COMPLETED",
+        "FAILED_RETRYABLE",
+        "UNKNOWN"
+      ],
+      "title": "IdemState",
+      "type": "string"
+    },
+    "RecordKey": {
+      "additionalProperties": false,
+      "description": "Keys are scoped per agent and tool (§7.2): one agent's key never collides with another's.",
+      "properties": {
+        "agent_id": {
+          "minLength": 1,
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "key": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "tool": {
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "tool",
+        "key"
+      ],
+      "title": "RecordKey",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One idempotency record: brief §7.7 plus the fencing token and the tool version.",
+  "properties": {
+    "attempt_id": {
+      "description": "Fencing token of the attempt that holds the row.",
+      "format": "uuid",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "correlation_id": {
+      "description": "Correlation ID of that attempt.",
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "created_at": {
+      "description": "First reservation.",
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Post-acknowledgement failure (R-004)."
+    },
+    "expires_at": {
+      "description": "End of retention; purge never deletes UNKNOWN.",
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "fingerprint": {
+      "description": "SHA-256 of the RFC 8785 arguments.",
+      "format": "binary",
+      "maxLength": 32,
+      "minLength": 32,
+      "title": "Fingerprint",
+      "type": "string"
+    },
+    "key": {
+      "$ref": "#/$defs/RecordKey",
+      "description": "Agent, tool and caller key."
+    },
+    "lease_expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Set while RESERVED.",
+      "title": "Lease Expires At"
+    },
+    "result_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Payload-store reference; bodies never live here.",
+      "title": "Result Ref"
+    },
+    "semantic_version": {
+      "description": "Tool version of the attempt.",
+      "minLength": 1,
+      "title": "Semantic Version",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/IdemState",
+      "description": "RESERVED, COMPLETED, FAILED_RETRYABLE or UNKNOWN."
+    },
+    "updated_at": {
+      "description": "Last state change.",
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "fingerprint",
+    "state",
+    "semantic_version",
+    "attempt_id",
+    "correlation_id",
+    "result_ref",
+    "error_code",
+    "lease_expires_at",
+    "expires_at",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "IdempotencyRecord",
+  "type": "object"
+}

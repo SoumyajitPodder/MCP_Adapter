@@ -21,15 +21,17 @@ from adapter_verify import composition
 from adapter_verify.access.adapters.jwt import JwksCache, JwtTokenVerifier
 from adapter_verify.access.fakes import SENTINEL_SECRET_PREFIX, SentinelSecretManager
 from adapter_verify.common.fakes import ManualClock, SeededEntropy
+from adapter_verify.idempotency.fakes import MemoryIdempotencyStore, MemoryOwnerAlerts
 from adapter_verify.observability.adapters.postgres import PostgresAuditStore
 from adapter_verify.observability.audit_service import AuditTrail
 from adapter_verify.observability.fakes import (
     MemoryDiagnostics,
     MemoryEventSink,
+    MemoryPayloadStore,
     RecordingTelemetry,
 )
 from adapter_verify.observability.service import META_CORRELATION_ID, InboundCall, ObservedEntry
-from adapter_verify.settings import AccessSettings
+from adapter_verify.settings import AccessSettings, IdempotencySettings
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -97,7 +99,22 @@ async def test_ungranted_agent_is_blocked_hidden_audited_and_nothing_leaks(
         diagnostics=diagnostics,
         clock=clock,
         entropy=SeededEntropy(b"acceptance"),
-        downstream=composition.build_pipeline(access, connector),
+        downstream=composition.build_pipeline(
+            access,
+            composition.build_idempotency(
+                IdempotencySettings(),
+                store=MemoryIdempotencyStore(),
+                payloads=MemoryPayloadStore(),
+                audit=AuditTrail(PostgresAuditStore(pool), clock),
+                telemetry=telemetry,
+                events=events,
+                diagnostics=diagnostics,
+                alerts=MemoryOwnerAlerts(),
+                clock=clock,
+                entropy=SeededEntropy(b"idempotency"),
+            ),
+            connector,
+        ),
     )
 
     async def call(tool: str, cid: str) -> ToolResult:

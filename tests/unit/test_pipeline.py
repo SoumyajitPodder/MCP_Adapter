@@ -11,16 +11,21 @@ from adapter_kernel.pipeline import Next, ToolFailure, ToolRequest, ToolResult, 
 from adapter_kernel.tooldef import Behavior
 from adapter_verify import composition
 from adapter_verify.access.fakes import SentinelSecretManager, StaticTokenVerifier
-from adapter_verify.common.fakes import ManualClock
+from adapter_verify.common.fakes import ManualClock, SeededEntropy
+from adapter_verify.idempotency.fakes import (
+    MemoryIdempotencyStore,
+    MemoryOwnerAlerts,
+)
 from adapter_verify.observability.audit_service import AuditTrail
 from adapter_verify.observability.fakes import (
     MemoryAuditStore,
     MemoryDiagnostics,
     MemoryEventSink,
+    MemoryPayloadStore,
     RecordingTelemetry,
 )
 from adapter_verify.pipeline import chain
-from adapter_verify.settings import AccessSettings
+from adapter_verify.settings import AccessSettings, IdempotencySettings
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -77,7 +82,7 @@ async def test_chain_runs_stages_in_order_and_allows_short_circuit() -> None:
     assert log == ["a"]
 
 
-async def test_composition_wires_access_first_from_repository_config() -> None:
+async def test_composition_wires_access_then_idempotency_from_repository_config() -> None:
     settings = AccessSettings(
         policies_dir=REPO / "policies",
         catalog_path=REPO / "catalog" / "tools.yaml",
@@ -94,6 +99,18 @@ async def test_composition_wires_access_first_from_repository_config() -> None:
         diagnostics=MemoryDiagnostics(),
         clock=clock,
     )
+    idempotency = composition.build_idempotency(
+        IdempotencySettings(),
+        store=MemoryIdempotencyStore(),
+        payloads=MemoryPayloadStore(),
+        audit=AuditTrail(MemoryAuditStore(), clock),
+        telemetry=RecordingTelemetry(),
+        events=MemoryEventSink(),
+        diagnostics=MemoryDiagnostics(),
+        alerts=MemoryOwnerAlerts(),
+        clock=clock,
+        entropy=SeededEntropy(b"pipeline"),
+    )
     reached: list[CallContext] = []
 
     async def terminal(ctx: CallContext, request: ToolRequest) -> ToolResult:
@@ -101,8 +118,8 @@ async def test_composition_wires_access_first_from_repository_config() -> None:
         reached.append(ctx)
         return _ok(ctx)
 
-    pipeline = composition.build_pipeline(access, terminal)
-    assert pipeline.stage_names == ("access.check",)
+    pipeline = composition.build_pipeline(access, idempotency, terminal)
+    assert pipeline.stage_names == ("access.check", "idempotency.reserve")
 
     request = _ctx().request
     ok = await pipeline(request, ToolRequest(arguments={}), SecretStr("t"))

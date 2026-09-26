@@ -1,6 +1,6 @@
 """Composition root: the only module that wires ports to adapters (brief §2).
 
-Stage order is fixed here and will be covered by a test once more stages exist (§3.5).
+Stage order is fixed here and covered by a test (§3.5).
 """
 
 import logging
@@ -29,10 +29,20 @@ from adapter_verify.access.service import (
 )
 from adapter_verify.common.adapters.postgres import load_migrations, migrate
 from adapter_verify.common.adapters.system import SystemClock, SystemEntropy
-from adapter_verify.common.ports import Clock
+from adapter_verify.common.ports import Clock, Entropy
 from adapter_verify.contract_ci.adapters.files import FileContractRepository
 from adapter_verify.contract_ci.domain.extract import EvidenceThreshold
 from adapter_verify.contract_ci.service import AccessView, ContractCi
+from adapter_verify.idempotency.adapters.alerts import LogOwnerAlerts
+from adapter_verify.idempotency.adapters.postgres import PostgresIdempotencyStore
+from adapter_verify.idempotency.domain.records import Timing
+from adapter_verify.idempotency.ports import IdempotencyStore, OwnerAlerts
+from adapter_verify.idempotency.service import (
+    IdempotencyAudit,
+    IdempotencyMaintenance,
+    IdempotencyObserver,
+    IdempotencyStage,
+)
 from adapter_verify.observability.adapters.otel import OtelTelemetry, build_tracer_provider
 from adapter_verify.observability.adapters.postgres import PostgresAuditStore, PostgresEventStore
 from adapter_verify.observability.adapters.stdlog import LogDiagnostics, LogEventSink
@@ -42,6 +52,7 @@ from adapter_verify.observability.ports import (
     Diagnostics,
     EventSink,
     EventWriter,
+    PayloadStore,
     Telemetry,
     TraceQuery,
 )
@@ -51,6 +62,7 @@ from adapter_verify.settings import (
     AccessSettings,
     ContractSettings,
     DatabaseSettings,
+    IdempotencySettings,
     ObservabilitySettings,
 )
 
@@ -168,13 +180,46 @@ def build_access(  # noqa: PLR0913 - one parameter per port
     )
 
 
-def stage_order(access: Access) -> list[Stage]:
-    """The fixed stage order (§3.5). §4 lifecycle, validation, §7 and §3/§2 stages join here."""
-    return [access.stage]
+def timing(settings: IdempotencySettings) -> Timing:
+    return Timing(
+        lease_s=settings.lease_s,
+        retention_h=settings.retention_h,
+        lease_overrides_s=settings.lease_overrides_s,
+        retention_overrides_h=settings.retention_overrides_h,
+    )
 
 
-def build_pipeline(access: Access, terminal: Next) -> AuthenticatedPipeline:
-    return AuthenticatedPipeline(access.authenticator, stage_order(access), terminal)
+def build_idempotency(  # noqa: PLR0913 - one parameter per port
+    settings: IdempotencySettings,
+    *,
+    store: IdempotencyStore,
+    payloads: PayloadStore,
+    audit: AuditTrail,
+    telemetry: Telemetry,
+    events: EventSink,
+    diagnostics: Diagnostics,
+    alerts: OwnerAlerts,
+    clock: Clock,
+    entropy: Entropy,
+) -> IdempotencyStage:
+    """TODO(owner): check at startup that every lease exceeds its connector timeout, once
+    connector configuration exists (Romik)."""
+    observer = IdempotencyObserver(
+        telemetry, events, IdempotencyAudit(audit, diagnostics), alerts, clock
+    )
+    return IdempotencyStage(store, payloads, observer, timing(settings), entropy)
+
+
+def stage_order(access: Access, idempotency: IdempotencyStage) -> list[Stage]:
+    """The fixed stage order (§1.3, §3.5). §4 lifecycle and input validation join between
+    access and idempotency; the §3/§2 stages join after it."""
+    return [access.stage, idempotency]
+
+
+def build_pipeline(
+    access: Access, idempotency: IdempotencyStage, terminal: Next
+) -> AuthenticatedPipeline:
+    return AuthenticatedPipeline(access.authenticator, stage_order(access, idempotency), terminal)
 
 
 def contract_ci(settings: ContractSettings) -> ContractCi:
@@ -216,3 +261,23 @@ def event_writer(pool: asyncpg.Pool) -> EventWriter:
 
 def audit_trail(pool: asyncpg.Pool) -> AuditTrail:
     return AuditTrail(PostgresAuditStore(pool), SystemClock())
+
+
+def idempotency_store(pool: asyncpg.Pool) -> IdempotencyStore:
+    return PostgresIdempotencyStore(pool)
+
+
+def idempotency_maintenance(
+    pool: asyncpg.Pool, settings: IdempotencySettings
+) -> IdempotencyMaintenance:
+    clock = SystemClock()
+    return IdempotencyMaintenance(
+        PostgresIdempotencyStore(pool),
+        IdempotencyAudit(
+            AuditTrail(PostgresAuditStore(pool), clock),
+            LogDiagnostics(logging.getLogger("adapter_verify.diagnostics")),
+        ),
+        LogOwnerAlerts(logging.getLogger("adapter_verify.alerts")),
+        clock,
+        timing(settings),
+    )

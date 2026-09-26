@@ -7,6 +7,47 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-25 — Session 14: M3 implemented
+
+The owner gave the go-ahead for M3 (D-059). Built per the Session 6 design and D-037:
+- the `idempotency` component:
+  - pure key rules and RFC 8785 fingerprints (`rfc8785`, approved in Session 7), `decide()` for the §7.5 table and `settle()` for delivery outcomes (R-002–R-004);
+  - `IdempotencyStage`, second in `composition.stage_order`, and `IdempotencyMaintenance` (sweep, purge, unknown, resolve);
+  - ports `IdempotencyStore`, `OwnerAlerts`, `Reconciler` (no Phase 1 adapter);
+  - `PostgresIdempotencyStore`, `LogOwnerAlerts`, in-package fakes, and the fault-injecting stub backend `FaultyConnector` (X-6);
+- migration `0003_idempotency_records` (§7.7 plus `attempt_id`, `semantic_version`);
+- CLI `idem sweep|purge|unknown|resolve`; settings `ADAPTER_IDEMPOTENCY_*`;
+- the entry now logs an idempotency key only if it passes the §7.2 rules.
+
+Verified:
+- 448 unit/property tests (95.6% coverage) and 16 Postgres integration tests.
+- §7.10 on real Postgres:
+  - 50 concurrent identical calls → one upstream call;
+  - a subprocess killed mid-call → sweeper `UNKNOWN` → retry `RECONCILIATION_PENDING` → `idem resolve`;
+  - key reuse with other arguments → `IDEMPOTENCY_KEY_CONFLICT`.
+- A Hypothesis state machine over calls, faults, time, sweeps and resolutions: at most one effect per key; replays equal the first result. It fails when `SENT_NO_RESPONSE` is mutated to retryable.
+- Only synthetic mutating tools are used (in test catalogs); the pilot catalog is unchanged.
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-059 | Go-ahead to implement M3 | — | approved by owner |
+| D-060 | Same key and arguments with a different tool version → `IDEMPOTENCY_KEY_CONFLICT` | A stored result is only replayed in the shape it was produced in. Rejected: fingerprinting the version (hides why it conflicts). | pending |
+| D-061 | An `ACKED` failure whose code invites a retry is stored and returned as `INTERNAL` | Replays never change, so "retry" would mislead. `AFTER_DELAY` codes also can't be replayed without a delay. | pending |
+| D-062 | A success always completes, even without an `ACKED` status; an alert flags the connector bug | A success proves the backend answered. Rejected: `UNKNOWN`, which hides a result the adapter has. | pending |
+| D-063 | A `RESERVED` row whose lease expired answers `RECONCILIATION_PENDING` before the sweeper runs | Never freed and never "in progress" once the lease is gone (§7.4) | pending |
+| D-064 | New span `idempotency.settle` after `backend.call` | Admission and outcome are separate steps; the §8.2 tree has one span for both | pending |
+| D-065 | Lease and expiry use the adapter's `Clock`, not the database `now()` | Deterministic tests with no sleeps (X-1). Needs synchronized instance clocks. | pending |
+| D-066 | A row resolved as `completed` by a person replays an empty success with warning `idempotency:resolved-manually` | The effect happened and no result exists. Rejected: `INTERNAL` (invites a new key, so a duplicate). A new error code would be a kernel change. | pending |
+| D-067 | If the result can't be stored after an `ACKED` success, the row becomes `UNKNOWN` | `COMPLETED` without a replayable result would need D-066's workaround for a machine failure | pending |
+| D-068 | If the settlement can't be written, the agent still gets the real outcome; the row expires into `UNKNOWN` with an alert | The effect already happened. Hiding its result helps nobody. | pending |
+| D-069 | Losing the fence (sweeper took the row) gives the agent `RECONCILIATION_PENDING`, except for an `ACKED` completion (R-005) | The sweeper's `UNKNOWN` and its alert already stand | pending |
+| D-070 | `idem resolve` restarts retention; `idem sweep` audits every row and exits 3 after the batch if any audit write failed | A resolved key must outlive the agent's retries; a partial audit must be visible | pending |
+| D-071 | `OwnerAlerts` port with a structured-log adapter until an alert channel is chosen | §7.8 needs an owner alert; the channel is not decided | pending |
+
+Not done: R-017 payload pinning for `UNKNOWN` rows waits on the payload-store adapter (§15). The startup check that each lease exceeds its connector timeout waits on Romik's connector configuration. Input validation doesn't exist yet, so fingerprints cover the arguments as received.
+
+---
+
 ## 2026-09-25 — Session 13: M4 implemented
 
 Built on `feat/m4-contract-ci`:

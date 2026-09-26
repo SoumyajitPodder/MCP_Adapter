@@ -3,8 +3,8 @@
 The execution and verification layer of an MCP adapter that puts stable, versioned tools in front of legacy telecom backends. It answers one question: **can we safely and reliably execute and verify this tool call?**
 
 > **Status:**
-> - Done: M0 (foundation), M1 (logging and audit), M2 (access control), M4 (contract CI).
-> - Next: M3 (duplicate prevention), then M5 (golden tasks).
+> - Done: M0 (foundation), M1 (logging and audit), M2 (access control), M3 (duplicate prevention), M4 (contract CI).
+> - Next: M5 (golden tasks).
 
 ## What it does
 
@@ -12,7 +12,7 @@ The execution and verification layer of an MCP adapter that puts stable, version
 | --- | --- | --- | --- |
 | Contract testing | CI | Blocks upstream or contract changes that would break agents | **M4, done** |
 | Golden-task regression | CI / sandbox | Proves agent behavior still holds after tool, description, mapping or model changes | M5, not started |
-| Duplicate prevention | every mutating call | Retries of a mutating call take effect exactly once; if the outcome is unknown, it goes to a human instead of guessing | M3, designed |
+| Duplicate prevention | every mutating call | Retries of a mutating call take effect exactly once; if the outcome is unknown, it goes to a human instead of guessing | **M3, done** |
 | Correlation-ID logging | every call | One ID reconstructs a whole decision chain, with fail-closed redaction and a tamper-evident audit trail | **M1, done** |
 | Access control | every call | Deny by default, enforced at both tool discovery and tool execution | **M2, done** |
 
@@ -65,6 +65,13 @@ uv run adapter-verify audit verify
 - `audit anchor` bounds how much recent audit history could be truncated undetected. Run it every minute.
 - `audit verify` detects tampering and exits 1 if it finds any. Run it at least daily.
 
+Duplicate prevention needs two scheduled jobs as well: `idem sweep` (every 15 s or so) turns expired reservations into `UNKNOWN`, and `idem purge` (daily) applies retention. A person settles `UNKNOWN` rows:
+
+```bash
+uv run adapter-verify idem unknown
+uv run adapter-verify idem resolve --agent <a> --tool <t> --key <k> --as failed --reason "no order upstream" --operator <id>
+```
+
 Every option and exit code is listed in `docs/SPEC.md` §11. Configuration keys are in §4.
 
 Access policies live in `policies/` (one file per agent), checked by `uv run adapter-verify policy lint`. To see why an agent is allowed or denied a tool:
@@ -97,11 +104,11 @@ MCP server (owner TBD) ──InboundCall──► ObservedEntry  (§8: correlati
           security decisions ─► audit_log hash chains (Postgres) ◄─ audit anchor / verify
 ```
 
-The stages after authentication arrive with M2 and M3 (this repo) and with Romik's §1–4.
+Access (§9) and idempotency (§7) stages exist; the others arrive with Romik's §1–4.
 
 ## Dependencies
 
-- **Runtime:** `pydantic` v2, `pydantic-settings`, `opentelemetry-api`/`-sdk`/`-exporter-otlp-proto-http`, `asyncpg`, `click`.
+- **Runtime:** `pydantic` v2, `pydantic-settings`, `opentelemetry-api`/`-sdk`/`-exporter-otlp-proto-http`, `asyncpg`, `click`, `pyyaml`, `pyjwt[crypto]`, `rfc8785`.
 - **Dev and CI:** `ruff`, `mypy`, `asyncpg-stubs`, `pytest`, `pytest-asyncio`, `pytest-cov`, `hypothesis`, `import-linter`, `pip-audit`, `testcontainers`. CI also uses the `gitleaks` binary and `cyclonedx-bom` (release builds only).
 - Exact versions and hashes are in `uv.lock`.
 

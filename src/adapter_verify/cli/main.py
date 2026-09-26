@@ -8,6 +8,7 @@ and driver errors can quote data.
 """
 
 import asyncio
+import getpass
 import os
 import sys
 from collections.abc import Awaitable, Callable
@@ -31,10 +32,18 @@ from adapter_verify.contract_ci.domain.differ import classify, diff
 from adapter_verify.contract_ci.domain.extract import ExtractionError
 from adapter_verify.contract_ci.domain.rules import CheckKind
 from adapter_verify.contract_ci.service import ContractCi, ReleaseError
+from adapter_verify.idempotency.domain.keys import is_valid_key
+from adapter_verify.idempotency.domain.records import IdempotencyRecord, RecordKey
+from adapter_verify.idempotency.service import Operator, Resolution
 from adapter_verify.observability.domain.ids import is_valid_correlation_id
 from adapter_verify.observability.domain.trace import render_json, render_table
 from adapter_verify.observability.ports import AuditUnavailableError
-from adapter_verify.settings import AccessSettings, ContractSettings, DatabaseSettings
+from adapter_verify.settings import (
+    AccessSettings,
+    ContractSettings,
+    DatabaseSettings,
+    IdempotencySettings,
+)
 
 EXIT_OK: Final = 0
 EXIT_FAILED: Final = 1
@@ -341,3 +350,110 @@ def audit_verify() -> None:
     if problems:
         sys.exit(EXIT_FAILED)
     click.echo("audit trail intact")
+
+
+def _idempotency_settings() -> IdempotencySettings:
+    try:
+        return IdempotencySettings()
+    except ValidationError as exc:
+        fields = ", ".join(
+            ".".join(str(p) for p in e["loc"]) for e in exc.errors(include_input=False)
+        )
+        _fail(f"invalid idempotency settings ({fields}); see docs/SPEC.md section 4")
+        raise  # unreachable
+
+
+def _row(r: IdempotencyRecord) -> str:
+    return "\t".join(
+        [
+            r.key.agent_id,
+            r.key.tool,
+            r.key.key,
+            r.state.value,
+            r.semantic_version,
+            r.correlation_id,
+            r.updated_at.isoformat(),
+        ]
+    )
+
+
+@cli.group()
+def idem() -> None:
+    """Duplicate prevention (brief 7): lease sweeper, retention and reconciliation."""
+
+
+@idem.command("sweep")
+@click.option("--limit", type=click.IntRange(1, 100_000), default=1_000, show_default=True)
+def idem_sweep(limit: int) -> None:
+    """Mark RESERVED rows whose lease expired as UNKNOWN, audit and alert. Run on a schedule."""
+    settings = _idempotency_settings()
+    expired = _with_pool(
+        lambda pool: composition.idempotency_maintenance(pool, settings).sweep(limit)
+    )
+    for record in expired:
+        click.echo(_row(record))
+    click.echo(f"{len(expired)} expired lease(s) marked UNKNOWN")
+
+
+@idem.command("purge")
+@click.option("--limit", type=click.IntRange(1, 1_000_000), default=10_000, show_default=True)
+def idem_purge(limit: int) -> None:
+    """Delete expired COMPLETED and FAILED_RETRYABLE rows. UNKNOWN rows are never deleted."""
+    settings = _idempotency_settings()
+    count = _with_pool(
+        lambda pool: composition.idempotency_maintenance(pool, settings).purge(limit)
+    )
+    click.echo(f"purged {count} row(s)")
+
+
+@idem.command("unknown")
+@click.option("--limit", type=click.IntRange(1, 100_000), default=1_000, show_default=True)
+def idem_unknown(limit: int) -> None:
+    """List rows awaiting reconciliation, oldest first."""
+    settings = _idempotency_settings()
+    rows = _with_pool(
+        lambda pool: composition.idempotency_maintenance(pool, settings).unknown(limit)
+    )
+    for record in rows:
+        click.echo(_row(record))
+    click.echo(f"{len(rows)} row(s) awaiting reconciliation", err=True)
+
+
+@idem.command("resolve")
+@click.option("--agent", required=True, help="Agent ID of the record.")
+@click.option("--tool", required=True, help="Tool name of the record.")
+@click.option("--key", required=True, help="Idempotency key of the record.")
+@click.option(
+    "--as",
+    "resolution",
+    type=click.Choice([r.value for r in Resolution]),
+    required=True,
+    help="completed: the effect happened. failed: it did not; the key becomes reusable.",
+)
+@click.option("--reason", required=True, help="Why; recorded on the audit trail.")
+@click.option("--operator", required=True, help="Operator ID; the OS user is recorded too.")
+def idem_resolve(  # noqa: PLR0913, PLR0917 - one parameter per option
+    agent: str, tool: str, key: str, resolution: str, reason: str, operator: str
+) -> None:
+    """Settle one UNKNOWN record by hand. Exit 1 if no UNKNOWN record has this key."""
+    if not (is_valid_key(key) and is_valid_key(operator)):
+        _fail("key and operator must match [A-Za-z0-9._:-]{1,128}")
+    if not reason.strip():
+        _fail("--reason must not be empty")
+    settings = _idempotency_settings()
+    try:
+        os_user = getpass.getuser()
+    except (OSError, KeyError):
+        os_user = "unknown"
+    record = _with_pool(
+        lambda pool: composition.idempotency_maintenance(pool, settings).resolve(
+            RecordKey(agent_id=agent, tool=tool, key=key),
+            Resolution(resolution),
+            Operator(name=operator, os_user=os_user),
+            reason,
+        )
+    )
+    if record is None:
+        click.echo("no UNKNOWN record with this agent, tool and key", err=True)
+        sys.exit(EXIT_FAILED)
+    click.echo(_row(record))

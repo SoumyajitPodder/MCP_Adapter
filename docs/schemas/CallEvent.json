@@ -59,6 +59,7 @@
         "lifecycle.gate",
         "input.validate",
         "idempotency.reserve",
+        "idempotency.settle",
         "backend.call",
         "drift.absorb",
         "output.validate"

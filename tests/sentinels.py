@@ -5,8 +5,9 @@ sentinel prefix. A test that planted a sentinel in a customer-data field fails i
 surfaced in a span, event, diagnostic, audit record or log line, even if the test itself
 never looked there.
 
-Scanned: in-memory telemetry, event sinks and stores, diagnostics, audit stores, OTel
-in-memory span exporters, and every log record. Not scanned: the payload store, whose job
+Scanned: in-memory telemetry, event sinks and stores, diagnostics, audit stores,
+idempotency records and owner alerts, OTel in-memory span exporters, and every log
+record. Not scanned: the payload store, whose job
 is to hold bodies. Opt out per test with ``@pytest.mark.sentinel_exempt`` (say why).
 """
 
@@ -17,6 +18,7 @@ from typing import Any
 import pytest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from adapter_verify.idempotency import fakes as idempotency_fakes
 from adapter_verify.observability import fakes
 
 SENTINEL_PREFIX = "SENTINEL-"
@@ -27,6 +29,8 @@ _SCANNED: tuple[type[Any], ...] = (
     fakes.MemoryEventStore,
     fakes.MemoryDiagnostics,
     fakes.MemoryAuditStore,
+    idempotency_fakes.MemoryIdempotencyStore,
+    idempotency_fakes.MemoryOwnerAlerts,
     InMemorySpanExporter,
 )
 

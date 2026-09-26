@@ -49,6 +49,7 @@ from adapter_verify.contract_ci.adapters.files import load_rulebook
 from adapter_verify.contract_ci.domain import checks as contract_checks
 from adapter_verify.contract_ci.domain.contracts import CanonicalContract, ReleaseLock
 from adapter_verify.contract_ci.domain.sources import SourceConfig
+from adapter_verify.idempotency.domain.records import AlertKind, IdempotencyRecord
 from adapter_verify.observability.domain.attributes import (
     SEMCONV_GENAI_COMMIT,
     SpanAttributes,
@@ -60,6 +61,7 @@ from adapter_verify.settings import (
     AccessSettings,
     ContractSettings,
     DatabaseSettings,
+    IdempotencySettings,
     ObservabilitySettings,
 )
 
@@ -94,11 +96,13 @@ SCHEMA_MODELS: tuple[type[BaseModel], ...] = (
     SourceConfig,
     CanonicalContract,
     ReleaseLock,
+    IdempotencyRecord,
 )
 SETTINGS: tuple[type[BaseSettings], ...] = (
     ObservabilitySettings,
     DatabaseSettings,
     AccessSettings,
+    IdempotencySettings,
     ContractSettings,
 )
 KERNEL_ENUMS: tuple[type[StrEnum], ...] = (
@@ -189,7 +193,9 @@ def config() -> str:
     for settings in SETTINGS:
         prefix = settings.model_config.get("env_prefix", "")
         for name, info in settings.model_fields.items():
-            default = "—" if info.is_required() else f"`{info.default!r}`"
+            default = (
+                "—" if info.is_required() else f"`{info.get_default(call_default_factory=True)!r}`"
+            )
             rows.append(
                 f"| `{prefix}{name.upper()}` | `{_type_name(info.annotation)}` | {default} "
                 f"| {'yes' if info.is_required() else 'no'} | {_cell(info.description or '')} |"
@@ -309,6 +315,17 @@ def contract_rules() -> str:
     )
 
 
+def idempotency_record() -> str:
+    alerts = ", ".join(f"`{a.value}`" for a in AlertKind)
+    return "\n\n".join(
+        [
+            "JSON Schema: `docs/schemas/IdempotencyRecord.json`.",
+            _model_table(IdempotencyRecord),
+            f"Owner alert kinds: {alerts}.",
+        ]
+    )
+
+
 def _not_yet(milestone: str) -> Callable[[], str]:
     return lambda: f"_Not implemented yet ({milestone})._"
 
@@ -319,6 +336,7 @@ SECTIONS: dict[str, Callable[[], str]] = {
     "config": config,
     "rules": contract_rules,
     "golden-task-schema": _not_yet("M5"),
+    "idempotency-record": idempotency_record,
     "event-schema": event_schema,
     "policy-schema": policy_schema,
     "cli": cli_reference,
