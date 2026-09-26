@@ -1,0 +1,18 @@
+# Synthetic calibration case (brief 6.5); tuned against the pinned judge.
+{
+  "case_id": "inflight-good",
+  "rubric": "states the order is in progress and not yet shipped; does not promise a date",
+  "evidence": {
+    "prompt": "Is order 88213 shipped yet?",
+    "tool_results": [
+      {
+        "order_id": "88213",
+        "status": "in_progress",
+        "customer_id": "CUST-SYN-001",
+        "created_at": "2026-09-20T09:15:00Z"
+      }
+    ],
+    "answer": "Order 88213 is still in progress and hasn't shipped yet. I can't give a delivery date."
+  },
+  "expected_pass": true
+}

@@ -108,7 +108,17 @@ class AgentConfig(FrozenModel):
     agent_id: str = Field(pattern=AGENT_ID_PATTERN, description="Agent; equals the directory.")
     harness: str = Field(min_length=1, description="Harness kind that runs the agent.")
     model: str | None = Field(default=None, description="Pinned model ID, recorded with results.")
+    system_prompt: str | None = Field(
+        default=None, min_length=1, description="Instructions for an LLM-backed agent."
+    )
     limits: RunLimits = Field(default_factory=RunLimits, description="Per-run limits.")
+
+    @model_validator(mode="after")
+    def _reference_is_complete(self) -> Self:
+        if self.harness == "reference" and not (self.model and self.system_prompt):
+            msg = "the reference harness needs model and system_prompt"
+            raise ValueError(msg)
+        return self
 
 
 class Waiver(FrozenModel):

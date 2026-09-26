@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import asyncpg
+from google.genai import Client as GenaiClient
+from google.genai import types as genai_types
 from pydantic import SecretStr
 
 from adapter_kernel.pipeline import Next, Stage
@@ -40,11 +42,22 @@ from adapter_verify.contract_ci.domain.extract import EvidenceThreshold
 from adapter_verify.contract_ci.service import AccessView, ContractCi
 from adapter_verify.golden.adapters.egress import SocketEgressGuard
 from adapter_verify.golden.adapters.files import Workspace, load_calibration, load_workspace
+from adapter_verify.golden.adapters.gemini import (
+    REFERENCE_HARNESS,
+    AsyncModels,
+    GeminiAgent,
+    GeminiJudge,
+)
 from adapter_verify.golden.adapters.git import GitRepo
 from adapter_verify.golden.domain.definitions import ToolDefinition
 from adapter_verify.golden.domain.select import Layout, input_digest
 from adapter_verify.golden.domain.tasks import AgentConfig, GoldenTask
-from adapter_verify.golden.ports import AgentHarness, HarnessUnavailableError, SandboxSession
+from adapter_verify.golden.ports import (
+    AgentHarness,
+    HarnessUnavailableError,
+    Judge,
+    SandboxSession,
+)
 from adapter_verify.golden.sandbox import DefinitionInputStage, FixtureBackend, GoldenSandbox
 from adapter_verify.golden.service import GoldenRunner
 from adapter_verify.idempotency.adapters.alerts import LogOwnerAlerts
@@ -356,10 +369,36 @@ def golden_digests(workspace: Workspace, policies: PolicySet) -> dict[str, str]:
     return digests
 
 
-def golden_harness(config: AgentConfig) -> AgentHarness:
-    """No production harness exists yet: reference agents arrive with M5b (DESIGN.md D-074)."""
-    msg = f"no agent harness of kind {config.harness!r} is available for {config.agent_id}"
-    raise HarnessUnavailableError(msg)
+def gemini_models(settings: GoldenSettings) -> AsyncModels | None:
+    """The Gemini client, or None without a key. The key reaches only the two adapters (R-012)."""
+    if settings.gemini_api_key is None:
+        return None
+    retry = genai_types.HttpRetryOptions(
+        attempts=5, initial_delay=2.0, max_delay=60.0, http_status_codes=[429, 500, 502, 503, 504]
+    )
+    client = GenaiClient(
+        api_key=settings.gemini_api_key.get_secret_value(),
+        http_options=genai_types.HttpOptions(timeout=90_000, retry_options=retry),
+    )
+    return client.aio.models
+
+
+def golden_harness(
+    settings: GoldenSettings, config: AgentConfig, models: AsyncModels | None
+) -> AgentHarness:
+    if config.harness != REFERENCE_HARNESS:
+        msg = f"no agent harness of kind {config.harness!r} is available for {config.agent_id}"
+        raise HarnessUnavailableError(msg)
+    if models is None:
+        msg = "set ADAPTER_GOLDEN_GEMINI_API_KEY (see .env.example) to run reference agents"
+        raise HarnessUnavailableError(msg)
+    del settings
+    # The model validator guarantees both for the reference harness.
+    return GeminiAgent(models, model=config.model or "", system_prompt=config.system_prompt or "")
+
+
+def golden_judge(settings: GoldenSettings, models: AsyncModels | None) -> Judge | None:
+    return None if models is None else GeminiJudge(models, model=settings.judge_model)
 
 
 def golden_sandboxes(access_settings: AccessSettings, workspace: Workspace) -> "_SandboxFactory":
@@ -439,16 +478,30 @@ def golden_runner(
     access_settings: AccessSettings,
     workspace: Workspace,
 ) -> GoldenRunner:
+    models = gemini_models(settings)
     return GoldenRunner(
         sandboxes=golden_sandboxes(access_settings, workspace),
-        harnesses=golden_harness,
-        judge=None,  # the LLM judge adapter arrives with M5b
+        harnesses=lambda config: golden_harness(settings, config, models),
+        judge=golden_judge(settings, models),
         calibration=load_calibration(settings.root / settings.calibration_dir)
         if (settings.root / settings.calibration_dir).is_dir()
         else [],
         egress=SocketEgressGuard(frozenset(settings.egress_allowed_hosts)),
         clock=SystemClock(),
     )
+
+
+def contracts_by_tool(
+    catalog: ToolCatalog, contracts: Sequence[CanonicalContract]
+) -> dict[str, CanonicalContract]:
+    """Each tool's contract at its default version (what fixtures are checked against)."""
+    index = {c.key: c for c in contracts}
+    found: dict[str, CanonicalContract] = {}
+    for entry in catalog.tools:
+        contract = index.get(f"{entry.tool}@{entry.version}")
+        if entry.default and contract is not None:
+            found[entry.tool] = contract
+    return found
 
 
 def git_repo(settings: GoldenSettings) -> GitRepo:

@@ -7,6 +7,44 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-26 — Session 18: M5b (Gemini agent and judge, canaries) implemented
+
+| ID | Decision | Status |
+| --- | --- | --- |
+| D-084 | M5b-Q1–Q3 approved as recommended: dependency `google-genai`; agent `gemini-3.5-flash`, judge `gemini-3.8-flash`; free-tier data use accepted for synthetic golden data only. M5b-Q4: the owner puts the key in a git-ignored `.env`. | approved by owner |
+| D-085 | Correction to Session 17: the adapters don't set `temperature=0`. Google's Gemini 3 guidance (checked 2026-09-26) strongly recommends the default 1.0 and warns lower values can loop. Repeats and thresholds carry the variance, as §6.6 intends. | pending |
+
+Built:
+- `GeminiAgent` (`harness: reference`): a manual tool-use loop.
+  - Function declarations come from the `ToolView`s. The model's turns are appended unchanged, keeping thought signatures.
+  - Function results carry only the agent-facing view (content, or error code plus fixed message).
+  - A stable idempotency key goes with every call.
+- `GeminiJudge`: schema-constrained JSON, validated again by `JudgeVerdict`.
+- The client is built only in the composition root, with retries for 429/5xx and a 90 s timeout. `golden calibrate`.
+- Settings `ADAPTER_GOLDEN_GEMINI_API_KEY` and `ADAPTER_GOLDEN_JUDGE_MODEL`.
+  - `GoldenSettings` also reads a git-ignored `.env`, taking only its own keys, so a shared `.env` can hold other components' settings. Blank values count as unset.
+  - `.env.example` is the tracked template.
+- The egress tripwire now allows the addresses it resolved for an allowed host, since connections go to IPs.
+- Canaries (§6.8): `enum_swap`, `description_mislead`, `drop_field`, `timezone_shift`, run by `golden canaries` against an unmutated baseline. Curated inputs are in `golden_tasks/canaries.yaml`.
+- Pilot: the `order-status-agent` reference config (synthetic system prompt), a fifth task (`order-placed-date`) so the timezone canary has coverage, and seven calibration cases.
+- Tests never see a real key (an autouse fixture). The Gemini adapters are tested against a fake client returning real SDK response objects.
+
+Verified offline: 542 unit/property tests, 16 integration tests, lint, types, import contracts, the SPEC check and pip-audit, all green.
+
+**Not verified yet:** a live run against Gemini. That needs the owner's key. Next, in order:
+1. `golden calibrate`: tune the calibration cases if the judge misses one.
+2. `golden run --all`: record the measured tokens in README costs, then set the suite token budget.
+3. `golden canaries`: the §6.11 acceptance.
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-086 | The reference agent sends an idempotency key derived from the tool and canonical arguments | This is what an orchestrator does (R-001). A key from the model would change per retry and defeat §7. | pending |
+| D-087 | A canary is caught only when a task that passed unmutated fails; `missed`, `no_coverage` and `baseline_failing` all exit 1 | A blind spot or an unmeasurable canary is as much a gap as a miss (§6.8) | pending |
+| D-088 | `drop_field` removes a field the contract requires | It simulates an upstream regression that slipped past translation; the canary asks whether the agent notices | pending |
+| D-089 | The CI golden job stays off until the network-isolated runner exists (D-074) | The in-process tripwire isn't isolation, and the key must not reach fork PRs | pending |
+
+---
+
 ## 2026-09-26 — Session 17: M5b (LLM agent and judge) design proposal
 
 The owner chose the Gemini API (no resources for a local model). Everything below except D-083 is **`pending`**; implementation needs approval of the dependency (M5b-Q1) and the model pins (M5b-Q2).

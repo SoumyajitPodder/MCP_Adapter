@@ -33,12 +33,20 @@ from adapter_verify.contract_ci.domain.differ import classify, diff
 from adapter_verify.contract_ci.domain.extract import ExtractionError
 from adapter_verify.contract_ci.domain.rules import CheckKind
 from adapter_verify.contract_ci.service import ContractCi, ReleaseError
-from adapter_verify.golden.adapters.files import Workspace, read_results, write_results
+from adapter_verify.golden.adapters.files import (
+    Workspace,
+    load_canaries,
+    read_results,
+    with_inputs,
+    write_results,
+)
 from adapter_verify.golden.adapters.git import GitError
 from adapter_verify.golden.domain import lint as golden_lint_rules
+from adapter_verify.golden.domain.canaries import CanaryKind, CanaryStatus, affected, mutate, status
 from adapter_verify.golden.domain.report import render
-from adapter_verify.golden.domain.results import TaskVerdict
+from adapter_verify.golden.domain.results import SuiteResults, TaskVerdict
 from adapter_verify.golden.domain.select import select
+from adapter_verify.golden.domain.tasks import GoldenTask
 from adapter_verify.golden.domain.verdict import gate
 from adapter_verify.golden.ports import HarnessUnavailableError
 from adapter_verify.golden.service import SuitePlan
@@ -503,6 +511,36 @@ class _Golden:
             raise  # unreachable
         self.layout = composition.golden_layout(self.settings, self.access)
 
+    def plan(
+        self,
+        tasks: list[GoldenTask],
+        git_sha: str | None,
+        *,
+        reasons: dict[str, list[str]] | None = None,
+        previous: SuiteResults | None = None,
+        suffix: str = "",
+    ) -> SuitePlan:
+        now = datetime.now(UTC)
+        return SuitePlan(
+            run_id=f"golden-{now:%Y%m%dT%H%M%SZ}{suffix}",
+            git_sha=git_sha,
+            tasks=tasks,
+            agents=self.workspace.agents,
+            digests=composition.golden_digests(self.workspace, self.policies),
+            quarantine=self.workspace.quarantine,
+            selected_because=reasons or {},
+            previous=previous,
+            token_budget=self.settings.token_budget,
+        )
+
+    def run(self, workspace: Workspace, plan: SuitePlan) -> SuiteResults:
+        runner = composition.golden_runner(self.settings, self.access, workspace)
+        try:
+            return asyncio.run(runner.run(plan))
+        except HarnessUnavailableError as exc:
+            _fail(str(exc))
+            raise  # unreachable
+
     def findings(self) -> list[golden_lint_rules.GoldenFinding]:
         return golden_lint_rules.lint(
             self.workspace.inputs, self.catalog, self.policies, self.contracts
@@ -596,24 +634,8 @@ def golden_run(  # noqa: PLR0913, PLR0917 - one parameter per option
     except ConfigFileError as exc:
         _fail(str(exc))
         return
-    now = datetime.now(UTC)
-    plan = SuitePlan(
-        run_id=f"golden-{now:%Y%m%dT%H%M%SZ}",
-        git_sha=repo.head(),
-        tasks=wanted,
-        agents=g.workspace.agents,
-        digests=composition.golden_digests(g.workspace, g.policies),
-        quarantine=g.workspace.quarantine,
-        selected_because=reasons,
-        previous=prior,
-        token_budget=g.settings.token_budget,
-    )
-    runner = composition.golden_runner(g.settings, g.access, g.workspace)
-    try:
-        outcome = asyncio.run(runner.run(plan))
-    except HarnessUnavailableError as exc:
-        _fail(str(exc))
-        return
+    plan = g.plan(wanted, repo.head(), reasons=reasons, previous=prior)
+    outcome = g.run(g.workspace, plan)
     target = results or g.settings.root / g.settings.results_dir / f"{outcome.run_id}.json"
     write_results(outcome, target)
     diffs = (
@@ -665,3 +687,55 @@ def golden_gate(tool: str, version: str, results: Path) -> None:
     for line in decision.lines:
         click.echo(line)
     sys.exit(int(decision.exit))
+
+
+@golden.command("calibrate")
+def golden_calibrate() -> None:
+    """Check the judge against the calibration cases (brief 6.5). Exit 1 on any miss."""
+    g = _Golden()
+    runner = composition.golden_runner(g.settings, g.access, g.workspace)
+    misses = asyncio.run(runner.calibrate())
+    if misses is None:
+        _fail("no judge: set ADAPTER_GOLDEN_GEMINI_API_KEY (see .env.example)")
+        return
+    for case_id in misses:
+        click.echo(f"MISSED	{case_id}")
+    if misses:
+        sys.exit(EXIT_FAILED)
+    click.echo(f"judge {g.settings.judge_model} classified every calibration case")
+
+
+@golden.command("canaries")
+def golden_canaries() -> None:
+    """Apply each mutation canary and check the suite catches it (brief 6.8). Exit 1 unless all
+    are caught."""
+    g = _Golden()
+    if g.findings():
+        _fail("golden tasks fail lint; run `adapter-verify golden lint`")
+    try:
+        config = load_canaries(g.settings.root / g.settings.tasks_dir)
+    except ConfigFileError as exc:
+        _fail(f"canaries.yaml: {exc}")
+        return
+    tasks = g.workspace.tasks
+    sha = composition.git_repo(g.settings).head()
+    baseline = g.run(g.workspace, g.plan(tasks, sha, suffix="-baseline"))
+    contracts = composition.contracts_by_tool(g.catalog, g.contracts)
+    statuses: list[CanaryStatus] = []
+    for kind in CanaryKind:
+        mutation = mutate(kind, config, g.workspace.inputs, contracts)
+        ids = affected(tasks, mutation.tools)
+        chosen = [t for t in tasks if t.task_id in ids]
+        mutated = (
+            g.run(
+                with_inputs(g.workspace, mutation.inputs),
+                g.plan(chosen, sha, suffix=f"-{kind.value}"),
+            )
+            if chosen
+            else None
+        )
+        result = status(ids, baseline, mutated)
+        statuses.append(result)
+        click.echo(f"{result.value.upper()}	{kind.value}	{', '.join(ids) or '-'}")
+    if any(s is not CanaryStatus.CAUGHT for s in statuses):
+        sys.exit(EXIT_FAILED)

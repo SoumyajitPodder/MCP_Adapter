@@ -4,10 +4,15 @@ Invalid or missing configuration raises at load time; the process must not start
 """
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
 class ObservabilitySettings(BaseSettings):
@@ -127,10 +132,26 @@ class ContractSettings(BaseSettings):
     )
 
 
+class _OwnFieldsDotEnv(DotEnvSettingsSource):
+    """A shared .env may hold other components' keys; take only this model's own fields."""
+
+    def __call__(self) -> dict[str, Any]:
+        fields = self.settings_cls.model_fields
+        return {k: v for k, v in super().__call__().items() if k in fields}
+
+
 class GoldenSettings(BaseSettings):
     """Section 6 settings. Environment prefix ``ADAPTER_GOLDEN_``. Paths are repo-relative."""
 
-    model_config = SettingsConfigDict(env_prefix="ADAPTER_GOLDEN_", frozen=True, extra="forbid")
+    # Also read from a git-ignored .env in the working directory (the Gemini key, D-083).
+    model_config = SettingsConfigDict(
+        env_prefix="ADAPTER_GOLDEN_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_ignore_empty=True,  # a blank key in .env means "not set"
+        frozen=True,
+        extra="forbid",
+    )
 
     root: Path = Field(default=Path(), description="Repository root.")
     tasks_dir: Path = Field(
@@ -147,8 +168,26 @@ class GoldenSettings(BaseSettings):
         default=None, description="Suite token budget; runs stop when it is spent. Measure first."
     )
     egress_allowed_hosts: tuple[str, ...] = Field(
-        default=(), description="Hosts a run may reach (none until an LLM harness exists)."
+        default=(), description="Hosts a run may reach, e.g. generativelanguage.googleapis.com."
     )
+    gemini_api_key: SecretStr | None = Field(
+        default=None, description="Gemini API key for the reference agent and judge. Secret."
+    )
+    judge_model: str = Field(
+        default="gemini-3.8-flash", min_length=1, description="Pinned judge model (M5b-Q2)."
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        del dotenv_settings
+        return (init_settings, env_settings, _OwnFieldsDotEnv(settings_cls), file_secret_settings)
 
 
 class DatabaseSettings(BaseSettings):

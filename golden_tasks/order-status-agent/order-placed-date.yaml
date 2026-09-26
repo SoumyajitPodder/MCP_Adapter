@@ -1,0 +1,21 @@
+# Synthetic scenario; no real customer or network data.
+task_id: order-placed-date
+agent: order-status-agent
+description: agent reports the date an order was placed from the tool's timestamp
+prompt: "What date was order 88213 placed?"
+fixtures:
+  - tool: order.get
+    source_id: order-management.rest.get-order
+    payload: fixtures/golden/order_88213_inprog.synthetic.json
+expect_calls:
+  - tool: order.get
+    semantic_version: "1.2.0"
+    args: { order_id: "88213" }
+expect_no_calls: ["order.cancel", "service.activate"]
+expect_state:
+  writes_performed: 0
+expect_answer:
+  rubric: gives the order date as 20 September 2026; does not give any other date
+runs: 3
+threshold: 2
+tags: [read, order, date]

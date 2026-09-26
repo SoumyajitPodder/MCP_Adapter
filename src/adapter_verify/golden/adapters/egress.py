@@ -21,6 +21,7 @@ class SocketEgressGuard:
     @contextmanager
     def guard(self) -> Iterator[list[str]]:
         blocked: list[str] = []
+        resolved: set[str] = set()  # addresses of allowed hosts, which connects then use
         real_getaddrinfo = socket.getaddrinfo
         real_connect = socket.socket.connect
         real_connect_ex = socket.socket.connect_ex
@@ -30,14 +31,16 @@ class SocketEgressGuard:
             return str(address[0]) if isinstance(address, tuple) and address else str(address)
 
         def check(host: str) -> None:
-            if host not in allowed:
+            if host not in allowed and host not in resolved:
                 blocked.append(host)
                 msg = f"egress blocked: {host}"
                 raise OSError(msg)
 
         def getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             check(str(host))
-            return real_getaddrinfo(host, *args, **kwargs)
+            infos = real_getaddrinfo(host, *args, **kwargs)
+            resolved.update(str(info[4][0]) for info in infos)
+            return infos
 
         def connect(self: socket.socket, address: Any) -> None:  # noqa: ANN401
             if self.family in {socket.AF_INET, socket.AF_INET6}:

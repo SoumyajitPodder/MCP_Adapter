@@ -1,8 +1,15 @@
-# How the golden runner starts this agent. "reference" is the in-repo stand-in agent that
-# arrives with M5b (DESIGN.md D-074); until then `golden run` reports it as unavailable.
-# TODO(owner): point at the real agent once its team provides one.
+# How the golden runner starts this agent: the in-repo reference agent on Gemini (D-083).
+# Stand-in until the agent's owning team provides the real one. TODO(owner): replace.
 agent_id: order-status-agent
 harness: reference
+model: gemini-3.5-flash
+system_prompt: >-
+  You are the order status agent for a telecom provider's customer support team.
+  Answer customer questions about orders and services by looking them up with the tools
+  you have. Base every statement on tool results; if a tool fails, say you could not check.
+  Never promise delivery or completion dates, and never offer to change, cancel, reinstate
+  or reactivate anything: you can only look things up. Reply to the customer in two or
+  three plain sentences.
 limits:
   max_tool_calls: 10
   timeout_s: 120

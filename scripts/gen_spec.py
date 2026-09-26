@@ -50,6 +50,7 @@ from adapter_verify.contract_ci.domain import checks as contract_checks
 from adapter_verify.contract_ci.domain.contracts import CanonicalContract, ReleaseLock
 from adapter_verify.contract_ci.domain.sources import SourceConfig
 from adapter_verify.golden.domain import lint as golden_lint
+from adapter_verify.golden.domain.canaries import CanaryConfig
 from adapter_verify.golden.domain.definitions import InputField, ToolDefinition
 from adapter_verify.golden.domain.judge import CalibrationCase
 from adapter_verify.golden.domain.results import RESULTS_SCHEMA_VERSION, SuiteResults
@@ -120,6 +121,7 @@ SCHEMA_MODELS: tuple[type[BaseModel], ...] = (
     ToolDefinition,
     CalibrationCase,
     SuiteResults,
+    CanaryConfig,
 )
 SETTINGS: tuple[type[BaseSettings], ...] = (
     ObservabilitySettings,
@@ -356,7 +358,8 @@ def golden_task_schema() -> str:
         [
             "JSON Schemas: `docs/schemas/GoldenTask.json`, `AgentConfig.json`, "
             "`QuarantineList.json`, `ToolDefinition.json`, `CalibrationCase.json`, "
-            f"`SuiteResults.json` (results schema version {RESULTS_SCHEMA_VERSION}).",
+            f"`SuiteResults.json` (results schema version {RESULTS_SCHEMA_VERSION}), "
+            "`CanaryConfig.json`.",
             *(
                 _model_table(m)
                 for m in (
@@ -371,6 +374,7 @@ def golden_task_schema() -> str:
                     Waiver,
                     ToolDefinition,
                     InputField,
+                    CanaryConfig,
                 )
             ),
             "| Lint rule | Fails when |\n| --- | --- |\n" + rules,

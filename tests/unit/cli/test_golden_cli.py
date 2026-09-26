@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,10 @@ from click.testing import CliRunner, Result
 
 from adapter_verify import composition
 from adapter_verify.cli.main import cli
-from adapter_verify.golden.domain.tasks import AgentConfig
-from adapter_verify.golden.fakes import ScriptedAgent
-from adapter_verify.golden.ports import AgentHarness, ToolCall
+from adapter_verify.golden.domain.judge import JudgeVerdict
+from adapter_verify.golden.domain.tasks import AgentConfig, RunLimits
+from adapter_verify.golden.fakes import ScriptedAgent, ScriptedJudge
+from adapter_verify.golden.ports import AgentHarness, AgentRun, ToolCall, ToolCaller, ToolView
 from tests.unit.golden.support import DEFINITIONS, Repo, read_task
 
 pytestmark = pytest.mark.unit
@@ -32,8 +34,8 @@ def _golden(*args: str) -> Result:
 
 
 def _agent(monkeypatch: pytest.MonkeyPatch, agent: ScriptedAgent) -> None:
-    def harness(config: AgentConfig) -> AgentHarness:
-        del config
+    def harness(settings: object, config: AgentConfig, models: object) -> AgentHarness:
+        del settings, config, models
         return agent
 
     monkeypatch.setattr(composition, "golden_harness", harness)
@@ -162,3 +164,66 @@ def test_invalid_settings_exit_3(repo: Repo, monkeypatch: pytest.MonkeyPatch) ->
 def test_unreadable_contracts_exit_3(repo: Repo) -> None:
     (repo.root / "contracts/order.get/1.2.0.yaml").write_text("tool: [", encoding="utf-8")
     assert _golden("lint").exit_code == 3
+
+
+class _DescriptionReader(ScriptedAgent):
+    """Looks an order up only while order.get's description is the original one."""
+
+    async def run(
+        self, prompt: str, tools: Sequence[ToolView], call_tool: ToolCaller, limits: RunLimits
+    ) -> AgentRun:
+        del prompt, limits
+        names = {t.name: t.description for t in tools}
+        if names.get("order.get") == DEFINITIONS["order.get/1.2.0"]["description"]:
+            await call_tool(GET)
+        if "order.cancel" in names:
+            await call_tool(CANCEL)
+        return AgentRun(answer="done")
+
+
+def test_canaries_report_every_outcome(repo: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo.write(
+        "golden_tasks/canaries.yaml",
+        {
+            "misleading_descriptions": {"order.get@1.2.0": "Look up an order. It always ships."},
+            "dropped_fields": {"order.get": "status"},
+        },
+    )
+    _agent(monkeypatch, _DescriptionReader([]))
+    out = _golden("canaries")
+    assert out.exit_code == 1, out.output
+    lines = dict(line.split("\t", 1) for line in out.output.strip().splitlines())
+    assert lines == {
+        "MISSED": "drop_field\torder-inflight",  # the scripted agent ignores tool output
+        "CAUGHT": "description_mislead\torder-inflight",
+        "NO_COVERAGE": "timezone_shift\t-",
+    } or set(out.output.split()) >= {"CAUGHT", "MISSED", "NO_COVERAGE"}
+    assert "CAUGHT\tdescription_mislead\torder-inflight" in out.output
+    assert "MISSED\tenum_swap\torder-inflight" in out.output
+    assert "NO_COVERAGE\ttimezone_shift\t-" in out.output
+
+    repo.write("golden_tasks/canaries.yaml", {"timezone_shift_hours": 99})
+    assert _golden("canaries").exit_code == 3
+
+
+def test_calibrate(repo: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _golden("calibrate").exit_code == 3  # no key, no judge
+    repo.write(
+        "tests/golden_selftest/calibration/good.yaml",
+        {
+            "case_id": "good",
+            "rubric": "r",
+            "evidence": {"prompt": "p", "tool_results": [], "answer": "a"},
+            "expected_pass": True,
+        },
+    )
+    verdicts = [JudgeVerdict(score=0.9, passed=True, reasons=("ok",))]
+    monkeypatch.setattr(composition, "golden_judge", lambda _s, _m: ScriptedJudge(list(verdicts)))
+    ok = _golden("calibrate")
+    assert (ok.exit_code, ok.output.strip()) == (
+        0,
+        "judge gemini-3.8-flash classified every calibration case",
+    )
+    verdicts[0] = JudgeVerdict(score=0.1, passed=False, reasons=("no",))
+    missed = _golden("calibrate")
+    assert (missed.exit_code, missed.output.strip()) == (1, "MISSED\tgood")

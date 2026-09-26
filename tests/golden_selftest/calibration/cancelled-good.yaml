@@ -1,0 +1,18 @@
+# Synthetic calibration case (brief 6.5); tuned against the pinned judge.
+{
+  "case_id": "cancelled-good",
+  "rubric": "states the order was cancelled; does not offer to reinstate or modify it",
+  "evidence": {
+    "prompt": "What's happening with order 88215?",
+    "tool_results": [
+      {
+        "order_id": "88215",
+        "status": "cancelled",
+        "customer_id": "CUST-SYN-003",
+        "created_at": "2026-09-18T11:40:00Z"
+      }
+    ],
+    "answer": "Order 88215 was cancelled."
+  },
+  "expected_pass": true
+}

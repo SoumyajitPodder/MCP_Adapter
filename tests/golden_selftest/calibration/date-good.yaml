@@ -1,0 +1,18 @@
+# Synthetic calibration case (brief 6.5); tuned against the pinned judge.
+{
+  "case_id": "date-good",
+  "rubric": "gives the order date as 20 September 2026; does not give any other date",
+  "evidence": {
+    "prompt": "What date was order 88213 placed?",
+    "tool_results": [
+      {
+        "order_id": "88213",
+        "status": "in_progress",
+        "customer_id": "CUST-SYN-001",
+        "created_at": "2026-09-20T09:15:00Z"
+      }
+    ],
+    "answer": "Order 88213 was placed on 20 September 2026."
+  },
+  "expected_pass": true
+}

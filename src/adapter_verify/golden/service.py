@@ -172,12 +172,16 @@ class GoldenRunner:
             update={"quarantine_recommended": quarantine_recommended(result, previous)}
         )
 
-    async def _calibrate(self) -> bool | None:
-        """None without a judge; otherwise whether it classified every known case (§6.5)."""
+    async def calibrate(self) -> list[str] | None:
+        """Case IDs the judge got wrong (§6.5); None without a judge."""
         if self._judge is None:
             return None
         verdicts = [await self._grade(c.rubric, c.evidence) for c in self._calibration]
-        return not calibration_misses(self._calibration, verdicts)
+        return calibration_misses(self._calibration, verdicts)
+
+    async def _calibrate(self) -> bool | None:
+        misses = await self.calibrate()
+        return None if misses is None else not misses
 
     async def _grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict | None:
         if self._judge is None:  # pragma: no cover - callers check first

@@ -1,6 +1,6 @@
 # adapter_verify — Specification (LLD §5–9)
 
-> **Status:** M0, M1 (§8), M2 (§9), M3 (§7), M4 (§5) and M5a (§6, offline core) implemented; M5b (LLM agents and judge) pending. Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
+> **Status:** M0–M5 implemented: §8, §9, §7, §5 and §6. The golden suite has not yet run against the live model; that needs the owner's Gemini key. Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
 >
 > Hand-written sections explain **why**. Generated sections state **what**.
 
@@ -261,7 +261,9 @@ All config comes from `ADAPTER_*` environment variables and is validated at star
 | `ADAPTER_GOLDEN_CALIBRATION_DIR` | `Path` | `WindowsPath('tests/golden_selftest/calibration')` | no | Judge calibration cases. |
 | `ADAPTER_GOLDEN_RESULTS_DIR` | `Path` | `WindowsPath('golden-results')` | no | Where results go. |
 | `ADAPTER_GOLDEN_TOKEN_BUDGET` | `Optional[Annotated[int, FieldInfo(annotation=NoneType, required=True, metadata=[Ge(ge=1)])]]` | `None` | no | Suite token budget; runs stop when it is spent. Measure first. |
-| `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS` | `tuple[str, ...]` | `()` | no | Hosts a run may reach (none until an LLM harness exists). |
+| `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS` | `tuple[str, ...]` | `()` | no | Hosts a run may reach, e.g. generativelanguage.googleapis.com. |
+| `ADAPTER_GOLDEN_GEMINI_API_KEY` | `SecretStr \| None` | `None` | no | Gemini API key for the reference agent and judge. Secret. |
+| `ADAPTER_GOLDEN_JUDGE_MODEL` | `str` | `'gemini-3.8-flash'` | no | Pinned judge model (M5b-Q2). |
 <!-- END GENERATED -->
 
 ## 5. Contract testing in CI
@@ -324,7 +326,7 @@ See the gate bullet above and §11 (`contract check`).
 
 ## 6. Golden-task regression
 
-*Milestone M5a (offline core) implemented. M5b (a Gemini reference agent and judge, D-083) is planned in DESIGN.md session 17, pending the SDK dependency and model pins. Tests: `tests/unit/golden/`, `tests/unit/cli/test_golden_cli.py`.*
+*Milestone M5 implemented: M5a (offline core) and M5b (Gemini reference agent and judge, D-083). Tests: `tests/unit/golden/`, `tests/unit/cli/test_golden_cli.py`. First live run pending the owner's key.*
 
 - **Task files:** `golden_tasks/<agent>/<task_id>.yaml` (schema below), one `agent.yaml` per agent, and `golden_tasks/quarantine.yaml`.
   - Fixtures are canonical tool output in `fixtures/golden/<name>.synthetic.json`, checked against the tool's contract.
@@ -335,21 +337,36 @@ See the gate bullet above and §11 (`contract check`).
   - Stores are in memory and the secret manager returns sentinels. The stub backend serves fixtures and counts calls and acknowledged writes.
   - Outbound connections are blocked by an in-process tripwire, not isolation: native code and child processes aren't covered.
 - **Agent:** runs behind `AgentHarness`. It sees only the tools `tools/list` allows. Calls are recorded by the sandbox, not taken from the agent.
-  - No production harness exists yet, so `golden run` exits 3 naming the agent. `ScriptedAgent` drives the tests.
+  - `harness: reference` is `GeminiAgent`, a tool-use loop with the model and system prompt from `agent.yaml`.
+    - The model's own turns go back unchanged (Gemini thought signatures).
+    - Temperature stays at the model default, per Google's guidance for Gemini 3.
+    - For state-changing tools it sends a stable idempotency key per distinct call, as an orchestrator would.
+  - Without `ADAPTER_GOLDEN_GEMINI_API_KEY` (read from the environment or a git-ignored `.env`; see `.env.example`), `golden run` exits 3. `ScriptedAgent` drives the tests.
+  - The key reaches only the two Gemini adapters, never the `SecretManager` port. Runs may reach only `generativelanguage.googleapis.com`.
+  - The Gemini free tier uses submitted content to improve Google's products, so golden inputs must stay synthetic.
 - **Layers, in order, first failure wins:**
   1. **calls:** tool, version, arguments (JSON equality);
   2. **sequence:** forbidden tools (even denied attempts), order, `exact_calls`;
   3. **state:** writes and per-tool calls at the stub backend;
-  4. **answer:** the judge. Without one, runs are `not_judged` and the task is `incomplete`, which never passes a gate.
+  4. **answer:** the judge (`GeminiJudge`, `ADAPTER_GOLDEN_JUDGE_MODEL`, default `gemini-3.8-flash`). Its output is constrained to the verdict schema, then validated.
+     - Before any task is judged, the judge must classify every case in `tests/golden_selftest/calibration/` (`golden calibrate` runs just that); otherwise runs are `judge_uncalibrated`.
+     - Without a judge, runs are `not_judged`.
+     - Either way the task is `incomplete`, which never passes a gate.
 - **Run errors:** `budget_exceeded` (calls, time, tokens, suite budget), `egress_blocked`, `sentinel_leak`, `harness_error`, `judge_error`. An error is a failed run, never retried.
 - **Verdict:** `pass` at `threshold` passing runs. Tasks that write must pass every run (lint). A task that fails twice in a row on unchanged inputs is reported as *quarantine recommended*; quarantine itself is a reviewed PR.
 - **Selection:** `--changed-since <ref>` re-runs the tasks whose definition, fixture, task file, agent config or policy changed. Adapter code, catalog or contract changes re-run everything.
 - **Results:** a JSON file per suite run (`SuiteResults`, schema version 1), plus a Markdown report showing expected vs actual per failure and a diff of every changed tool description.
+- **Canaries** (§6.8): `golden canaries` runs the suite once unmutated, then once per canary on the affected tasks:
+  - `enum_swap`: swaps the first two enum values in fixtures;
+  - `description_mislead`: curated text in `golden_tasks/canaries.yaml`;
+  - `drop_field`: removes a field the agent relies on;
+  - `timezone_shift`: moves timestamps and keeps `Z`.
+  - A canary is `caught` when a task that passed unmutated fails. Anything else (`missed`, `no_coverage`, `baseline_failing`) exits 1.
 - **Gate:** `golden gate --tool T --version V --results F` passes only on current (same input digest), passing evidence for every task touching `T@V`. Missing, stale, incomplete or zero coverage fails. A quarantined task blocks unless a waiver names the tool.
 
 ### 6.1 Task file schema
 <!-- BEGIN GENERATED: golden-task-schema -->
-JSON Schemas: `docs/schemas/GoldenTask.json`, `AgentConfig.json`, `QuarantineList.json`, `ToolDefinition.json`, `CalibrationCase.json`, `SuiteResults.json` (results schema version 1).
+JSON Schemas: `docs/schemas/GoldenTask.json`, `AgentConfig.json`, `QuarantineList.json`, `ToolDefinition.json`, `CalibrationCase.json`, `SuiteResults.json` (results schema version 1), `CanaryConfig.json`.
 
 #### `GoldenTask`
 
@@ -420,6 +437,7 @@ What the stub backend returns for calls to one tool (canonical output, synthetic
 | `agent_id` | `str` | yes | Agent; equals the directory. |
 | `harness` | `str` | yes | Harness kind that runs the agent. |
 | `model` | `str \| None` | no | Pinned model ID, recorded with results. |
+| `system_prompt` | `str \| None` | no | Instructions for an LLM-backed agent. |
 | `limits` | `RunLimits` | no | Per-run limits. |
 
 #### `RunLimits`
@@ -476,6 +494,16 @@ One tool argument.
 | `values` | `tuple[str, ...] \| None` | no | Allowed values for enums. |
 | `required` | `bool` | no | Whether the argument must be present. |
 | `description` | `str` | no | What the argument means, for the agent. |
+
+#### `CanaryConfig`
+
+``golden_tasks/canaries.yaml``: the curated parts of the canaries.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `misleading_descriptions` | `dict[str, str]` | no | tool@version → a subtly misleading description. |
+| `dropped_fields` | `dict[str, str]` | no | tool → output field the agent relies on. |
+| `timezone_shift_hours` | `int` | no | Shift datetimes by this much, keeping 'Z'. |
 
 | Lint rule | Fails when |
 | --- | --- |
@@ -800,8 +828,8 @@ One released tool version. Stand-in for the tool registry (brief §1) until it e
 | `IdempotencyStore` | `idempotency.ports` | `PostgresIdempotencyStore` | `MemoryIdempotencyStore` | M3 |
 | `OwnerAlerts` | `idempotency.ports` | `LogOwnerAlerts` (interim; channel TBD) | `MemoryOwnerAlerts` | M3 |
 | `Reconciler` | `idempotency.ports` | *none in Phase 1: people resolve `UNKNOWN`* | — | M3 |
-| `AgentHarness` | `golden.ports` | *none until M5b* | `ScriptedAgent` | M5 |
-| `Judge` | `golden.ports` | *none until M5b* | `ScriptedJudge` | M5 |
+| `AgentHarness` | `golden.ports` | `GeminiAgent` (`harness: reference`) | `ScriptedAgent` | M5 |
+| `Judge` | `golden.ports` | `GeminiJudge` | `ScriptedJudge` | M5 |
 | `SandboxFactory` / `SandboxSession` | `golden.ports` | `GoldenSandbox` (wired in `composition`) | — | M5 |
 | `EgressGuard` | `golden.ports` | `SocketEgressGuard` (tripwire) | `RecordingEgressGuard` | M5 |
 | `Next`, `Stage` | `adapter_kernel.pipeline` | `AccessStage`, `IdempotencyStage`; order fixed in `composition.stage_order` | `FaultyConnector` (stub backend, every delivery outcome) | M0 |
@@ -890,6 +918,22 @@ Apply pending forward-only migrations.
 | Option | Type | Default | Required | Meaning |
 | --- | --- | --- | --- | --- |
 | `--migrations-dir` | `directory` | `migrations` | no | Directory of NNNN_name.sql files. |
+
+#### `adapter-verify golden calibrate`
+
+Check the judge against the calibration cases (brief 6.5). Exit 1 on any miss.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| — | | | | no options |
+
+#### `adapter-verify golden canaries`
+
+Apply each mutation canary and check the suite catches it (brief 6.8). Exit 1 unless all are caught.
+
+| Option | Type | Default | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| — | | | | no options |
 
 #### `adapter-verify golden gate`
 

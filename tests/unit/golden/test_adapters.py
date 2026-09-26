@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr, ValidationError
 
+from adapter_verify import composition
 from adapter_verify.common.adapters.yamlfile import ConfigFileError
 from adapter_verify.golden.adapters.egress import SocketEgressGuard
 from adapter_verify.golden.adapters.files import (
@@ -13,8 +15,12 @@ from adapter_verify.golden.adapters.files import (
     read_results,
     write_results,
 )
+from adapter_verify.golden.adapters.gemini import GeminiAgent, GeminiJudge
 from adapter_verify.golden.adapters.git import GitError, GitRepo
 from adapter_verify.golden.domain.results import SuiteResults, TokenUsage
+from adapter_verify.golden.domain.tasks import AgentConfig
+from adapter_verify.golden.ports import HarnessUnavailableError
+from adapter_verify.settings import GoldenSettings
 from tests.unit.golden.support import Repo, read_task
 
 pytestmark = pytest.mark.unit
@@ -140,3 +146,43 @@ def test_egress_guard_lets_loopback_self_pipes_through() -> None:
             client.close()
             server.close()
     assert blocked == []
+
+
+def test_guard_allows_addresses_resolved_for_allowed_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_getaddrinfo(host: object, *args: object, **kwargs: object) -> list[object]:
+        del host, args, kwargs
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.9", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    with SocketEgressGuard(frozenset({"api.allowed.invalid"})).guard() as blocked:
+        socket.getaddrinfo("api.allowed.invalid", 443)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.01)
+        try:
+            s.connect_ex(("192.0.2.9", 443))  # allowed: resolved from an allowed host
+        finally:
+            s.close()
+    assert blocked == []
+
+
+def test_gemini_wiring_needs_a_key_and_a_known_harness() -> None:
+    reference = AgentConfig(agent_id="a", harness="reference", model="m", system_prompt="s")
+    no_key = GoldenSettings()
+    assert composition.gemini_models(no_key) is None
+    assert composition.golden_judge(no_key, None) is None
+    with pytest.raises(HarnessUnavailableError, match="ADAPTER_GOLDEN_GEMINI_API_KEY"):
+        composition.golden_harness(no_key, reference, None)
+    keyed = GoldenSettings(gemini_api_key=SecretStr("test-key-not-real"))
+    models = composition.gemini_models(keyed)
+    assert models is not None
+    assert isinstance(composition.golden_harness(keyed, reference, models), GeminiAgent)
+    assert isinstance(composition.golden_judge(keyed, models), GeminiJudge)
+    with pytest.raises(HarnessUnavailableError, match="'custom'"):
+        composition.golden_harness(
+            keyed, reference.model_copy(update={"harness": "custom"}), models
+        )
+
+
+def test_reference_agent_config_needs_model_and_prompt() -> None:
+    with pytest.raises(ValidationError, match="model and system_prompt"):
+        AgentConfig(agent_id="a", harness="reference", model="m")

@@ -1,0 +1,15 @@
+# Mutation canaries (brief 6.8, DESIGN.md session 15): curated, so a canary run is
+# reproducible. `adapter-verify golden canaries` must report every canary CAUGHT.
+misleading_descriptions:
+  order.get@1.2.0: >-
+    Look up one order by its order ID. Returns the order's status, the customer ID and when
+    the order was created. The status shows the last step already finished, so in_progress
+    means the order has shipped and is with the carrier. Read-only.
+  service.get@1.0.0: >-
+    Look up one service by its service ID. Returns its status, the account ID and when it
+    was activated. A suspended service is only paused for maintenance and is working
+    normally for the customer. Read-only.
+dropped_fields:
+  order.get: status
+  service.get: status
+timezone_shift_hours: -10

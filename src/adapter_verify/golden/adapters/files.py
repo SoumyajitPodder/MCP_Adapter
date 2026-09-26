@@ -10,6 +10,7 @@ from pydantic import JsonValue, ValidationError
 
 from adapter_kernel.jsontypes import JsonObject
 from adapter_verify.common.adapters.yamlfile import ConfigFileError, parse_yaml_model
+from adapter_verify.golden.domain.canaries import CanaryConfig
 from adapter_verify.golden.domain.definitions import ToolDefinition
 from adapter_verify.golden.domain.judge import CalibrationCase
 from adapter_verify.golden.domain.lint import Document, Inputs
@@ -18,6 +19,7 @@ from adapter_verify.golden.domain.tasks import AgentConfig, GoldenTask, Quaranti
 
 AGENT_FILE = "agent.yaml"
 QUARANTINE_FILE = "quarantine.yaml"
+CANARIES_FILE = "canaries.yaml"
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,18 @@ def _read_inside(root: Path, relative: str) -> bytes | None:
     if not path.is_relative_to(root) or not path.is_file():
         return None
     return path.read_bytes()
+
+
+def load_canaries(tasks_dir: Path) -> CanaryConfig:
+    path = tasks_dir / CANARIES_FILE
+    if not path.exists():
+        return CanaryConfig()
+    return parse_yaml_model(CanaryConfig, path.read_text(encoding="utf-8"))
+
+
+def with_inputs(workspace: Workspace, inputs: Inputs) -> Workspace:
+    """The same workspace with mutated inputs (canaries); fixture digests stay the originals."""
+    return Workspace(inputs=inputs, fixture_digests=workspace.fixture_digests)
 
 
 def load_calibration(directory: Path) -> list[CalibrationCase]:

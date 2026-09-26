@@ -70,6 +70,20 @@
       "default": null,
       "description": "Pinned model ID, recorded with results.",
       "title": "Model"
+    },
+    "system_prompt": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Instructions for an LLM-backed agent.",
+      "title": "System Prompt"
     }
   },
   "required": [

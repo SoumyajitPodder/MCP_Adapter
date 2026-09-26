@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "description": "``golden_tasks/canaries.yaml``: the curated parts of the canaries.",
+  "properties": {
+    "dropped_fields": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "tool → output field the agent relies on.",
+      "title": "Dropped Fields",
+      "type": "object"
+    },
+    "misleading_descriptions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "tool@version → a subtly misleading description.",
+      "title": "Misleading Descriptions",
+      "type": "object"
+    },
+    "timezone_shift_hours": {
+      "default": -10,
+      "description": "Shift datetimes by this much, keeping 'Z'.",
+      "maximum": 23,
+      "minimum": -23,
+      "title": "Timezone Shift Hours",
+      "type": "integer"
+    }
+  },
+  "title": "CanaryConfig",
+  "type": "object"
+}
