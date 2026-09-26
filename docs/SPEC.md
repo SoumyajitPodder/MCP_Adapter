@@ -324,7 +324,7 @@ See the gate bullet above and §11 (`contract check`).
 
 ## 6. Golden-task regression
 
-*Milestone M5a (offline core) implemented; M5b (LLM agents and judge) pending the provider decision (DESIGN.md D-073, D-074). Tests: `tests/unit/golden/`, `tests/unit/cli/test_golden_cli.py`.*
+*Milestone M5a (offline core) implemented. M5b (a Gemini reference agent and judge, D-083) is planned in DESIGN.md session 17, pending the SDK dependency and model pins. Tests: `tests/unit/golden/`, `tests/unit/cli/test_golden_cli.py`.*
 
 - **Task files:** `golden_tasks/<agent>/<task_id>.yaml` (schema below), one `agent.yaml` per agent, and `golden_tasks/quarantine.yaml`.
   - Fixtures are canonical tool output in `fixtures/golden/<name>.synthetic.json`, checked against the tool's contract.

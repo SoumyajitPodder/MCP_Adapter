@@ -4,7 +4,7 @@ The execution and verification layer of an MCP adapter that puts stable, version
 
 > **Status:**
 > - Done: M0 (foundation), M1 (logging and audit), M2 (access control), M3 (duplicate prevention), M4 (contract CI), M5a (golden-task core, offline).
-> - Next: M5b (LLM agents and judge), after the provider decision.
+> - Next: M5b, a Gemini-based reference agent and judge (plan: `DESIGN.md` session 17), after the SDK dependency and model pins are approved.
 
 ## What it does
 
