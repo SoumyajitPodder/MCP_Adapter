@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "AuditKind": {
+      "enum": [
+        "access_decision",
+        "idempotency_transition",
+        "manual_reconciliation",
+        "baseline_accept",
+        "ci_override",
+        "anchor"
+      ],
+      "title": "AuditKind",
+      "type": "string"
+    },
+    "DetailValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "What happened. Details are flat scalars and must already be redacted.",
+  "properties": {
+    "actor": {
+      "description": "Principal that caused the event.",
+      "minLength": 1,
+      "title": "Actor",
+      "type": "string"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Correlation Id"
+    },
+    "detail": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DetailValue"
+      },
+      "title": "Detail",
+      "type": "object"
+    },
+    "kind": {
+      "$ref": "#/$defs/AuditKind"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "actor",
+    "occurred_at"
+  ],
+  "title": "AuditEvent",
+  "type": "object"
+}

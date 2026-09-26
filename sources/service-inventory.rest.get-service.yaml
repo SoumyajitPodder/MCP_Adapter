@@ -1,0 +1,10 @@
+# Service inventory REST backend, no published spec: shape is observed from samples.
+# Samples are synthetic until real recorded traffic exists. TODO(owner): replace.
+source_id: service-inventory.rest.get-service
+kind: observed
+version: v2
+operation: GET /services/{id}
+tools: [service.get]
+enum_paths: [svcStatus]
+samples:
+  - path: fixtures/samples/service-inventory.get-service.synthetic.jsonl

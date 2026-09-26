@@ -1,0 +1,66 @@
+{
+  "content_hash": "528e515dc0e372fb1dc35bb25d356570b03d1a5d2d994ce1614df60da47cb808",
+  "operations": [
+    {
+      "errors": [],
+      "inputs": [],
+      "name": "GET /services/{id}",
+      "outputs": [
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "account",
+          "required": true,
+          "type": "object"
+        },
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "account.id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum_values": null,
+          "format": "US",
+          "nullable": false,
+          "path": "activatedOn",
+          "required": true,
+          "type": "datetime"
+        },
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "serviceId",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum_values": [
+            "ACTIVE",
+            "SUSPENDED",
+            "TERMINATED"
+          ],
+          "format": null,
+          "nullable": false,
+          "path": "svcStatus",
+          "required": true,
+          "type": "enum"
+        }
+      ]
+    }
+  ],
+  "provenance": {
+    "extracted_at": "2026-09-26T00:32:50.254807Z",
+    "extractor": "observed",
+    "extractor_version": "1",
+    "kind": "inferred",
+    "sample_count": 12
+  },
+  "source_id": "service-inventory.rest.get-service",
+  "source_kind": "observed",
+  "source_version": "v2"
+}

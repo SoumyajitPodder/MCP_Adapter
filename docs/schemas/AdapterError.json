@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "ErrorCode": {
+      "description": "Every error an agent can receive. Nothing else is ever returned.",
+      "enum": [
+        "INVALID_INPUT",
+        "NOT_AUTHORIZED",
+        "VERSION_NOT_PERMITTED",
+        "SCOPE_VIOLATION",
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "IDEMPOTENCY_KEY_CONFLICT",
+        "DUPLICATE_IN_PROGRESS",
+        "RECONCILIATION_PENDING",
+        "DRIFT_BLOCKED",
+        "UPSTREAM_UNAVAILABLE",
+        "CONTRACT_VIOLATION",
+        "INTERNAL"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An error as returned to an agent.",
+  "properties": {
+    "code": {
+      "$ref": "#/$defs/ErrorCode",
+      "description": "Member of the shared error enum."
+    },
+    "retry_after_ms": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Suggested delay. Set only when the code's retry policy is after_delay.",
+      "title": "Retry After Ms"
+    }
+  },
+  "required": [
+    "code"
+  ],
+  "title": "AdapterError",
+  "type": "object"
+}

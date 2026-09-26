@@ -1,0 +1,7 @@
+{
+  "released": {
+    "inventory.snapshot@1.0.0": "03080a04c4b25a44886bf1c3b9855cf9d5af386350487170c7a04f5e562bfec2",
+    "order.get@1.2.0": "d250864785e9bc46217eeab5e748ae7762229189ae3ad8741f70b0f26f273a58",
+    "service.get@1.0.0": "6ce5418de9d4cf0f1a16454f703f83789b81ac440e18a6ad5d1c66e8b2d582db"
+  }
+}

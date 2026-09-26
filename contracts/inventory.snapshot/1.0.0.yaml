@@ -1,0 +1,8 @@
+# Canonical contract (field-list format of the tool registry prototype, M4-Q2).
+tool: inventory.snapshot
+version: "1.0.0"
+fields:
+  - {name: item_id, type: string}
+  - {name: status, type: enum, values: [available, reserved, decommissioned]}
+  - {name: site_id, type: string}
+  - {name: updated_at, type: datetime}

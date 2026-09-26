@@ -1,0 +1,10 @@
+# Order management REST backend, no published spec: shape is observed from samples.
+# Samples are synthetic until real recorded traffic exists. TODO(owner): replace.
+source_id: order-management.rest.get-order
+kind: observed
+version: v2
+operation: GET /orders/{id}
+tools: [order.get]
+enum_paths: [orderState]
+samples:
+  - path: fixtures/samples/order-management.get-order.synthetic.jsonl

@@ -1,0 +1,8 @@
+# Canonical contract (field-list format of the tool registry prototype, M4-Q2).
+tool: service.get
+version: "1.0.0"
+fields:
+  - {name: service_id, type: string}
+  - {name: status, type: enum, values: [active, suspended, terminated]}
+  - {name: account_id, type: string}
+  - {name: activated_at, type: datetime}

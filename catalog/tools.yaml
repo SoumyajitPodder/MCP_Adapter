@@ -1,0 +1,17 @@
+# Released tool versions that policies are checked against.
+# Stand-in for the tool registry (LLD §1) until it exists: tools and versions follow the
+# canonical contracts in the lifecycle prototype; all Phase 1 pilot tools are read-only.
+# TODO(owner): replace with the registry once it is published.
+tools:
+  - tool: order.get
+    version: "1.2.0"
+    behavior: read_only
+    default: true
+  - tool: service.get
+    version: "1.0.0"
+    behavior: read_only
+    default: true
+  - tool: inventory.snapshot
+    version: "1.0.0"
+    behavior: read_only
+    default: true

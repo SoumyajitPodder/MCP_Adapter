@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "description": "Adapter metadata attached to every result, success or failure.",
+  "properties": {
+    "absorbed": {
+      "default": [],
+      "description": "Drift changes absorbed on this call (§3).",
+      "items": {
+        "type": "string"
+      },
+      "title": "Absorbed",
+      "type": "array"
+    },
+    "adapter_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Adapter version that served the call (§4).",
+      "title": "Adapter Version"
+    },
+    "correlation_id": {
+      "description": "Echoed back (§8).",
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "replayed": {
+      "default": false,
+      "description": "True if the result came from the idempotency store (§7).",
+      "title": "Replayed",
+      "type": "boolean"
+    },
+    "warnings": {
+      "default": [],
+      "description": "Deprecation or pending-review notices (§3/§4).",
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "correlation_id"
+  ],
+  "title": "ResponseMeta",
+  "type": "object"
+}

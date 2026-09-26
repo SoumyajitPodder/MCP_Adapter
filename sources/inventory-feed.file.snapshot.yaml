@@ -1,0 +1,18 @@
+# Daily inventory CSV feed (inventory_YYYYMMDD.csv). Layout is declared; samples are synthetic.
+# TODO(owner): confirm the real layout and replace the samples.
+source_id: inventory-feed.file.snapshot
+kind: file
+version: v1
+operation: inventory_YYYYMMDD.csv
+tools: [inventory.snapshot]
+delimiter: ","
+layout:
+  - {name: item_id, type: string}
+  - {name: status, type: enum, enum_values: [AVAIL, RSVD, DECOM]}
+  - {name: site_id, type: string}
+  - {name: updated_at, type: datetime, format: ISO}
+samples:
+  - path: fixtures/samples/inventory-feed.2026-09-02.synthetic.csv
+    captured_at: "2026-09-02T08:00:00Z"
+  - path: fixtures/samples/inventory-feed.2026-09-03.synthetic.csv
+    captured_at: "2026-09-03T08:00:00Z"

@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "Grant": {
+      "additionalProperties": false,
+      "description": "Permission to call one tool within one version range. Tool names match exactly.",
+      "properties": {
+        "tool": {
+          "description": "Exact tool name; wildcards are a lint error.",
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        },
+        "versions": {
+          "description": "SemVer range, e.g. \">=1.0.0,<2.0.0\".",
+          "title": "Versions",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "versions"
+      ],
+      "title": "Grant",
+      "type": "object"
+    },
+    "Scope": {
+      "enum": [
+        "read",
+        "write"
+      ],
+      "title": "Scope",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything one agent may do. Deny by default: anything not granted is refused.",
+  "properties": {
+    "agent_id": {
+      "description": "Authenticated agent identity.",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "grants": {
+      "description": "Tool and version grants.",
+      "items": {
+        "$ref": "#/$defs/Grant"
+      },
+      "title": "Grants",
+      "type": "array"
+    },
+    "owner": {
+      "description": "Team accountable for this agent. Required for write scope.",
+      "title": "Owner",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/Scope",
+      "description": "read agents may never call state-changing tools."
+    }
+  },
+  "required": [
+    "agent_id",
+    "owner",
+    "scope",
+    "grants"
+  ],
+  "title": "Policy",
+  "type": "object"
+}

@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "AdapterError": {
+      "additionalProperties": false,
+      "description": "An error as returned to an agent.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode",
+          "description": "Member of the shared error enum."
+        },
+        "retry_after_ms": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Suggested delay. Set only when the code's retry policy is after_delay.",
+          "title": "Retry After Ms"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "AdapterError",
+      "type": "object"
+    },
+    "DeliveryStatus": {
+      "description": "What a connector knows about whether a request reached the backend (DESIGN.md R-002).\n\nIdempotency (§7) decides a record's final state from this, never from the error code.",
+      "enum": [
+        "not_sent",
+        "sent_no_response",
+        "acked",
+        "rejected_no_effect"
+      ],
+      "title": "DeliveryStatus",
+      "type": "string"
+    },
+    "ErrorCode": {
+      "description": "Every error an agent can receive. Nothing else is ever returned.",
+      "enum": [
+        "INVALID_INPUT",
+        "NOT_AUTHORIZED",
+        "VERSION_NOT_PERMITTED",
+        "SCOPE_VIOLATION",
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "IDEMPOTENCY_KEY_CONFLICT",
+        "DUPLICATE_IN_PROGRESS",
+        "RECONCILIATION_PENDING",
+        "DRIFT_BLOCKED",
+        "UPSTREAM_UNAVAILABLE",
+        "CONTRACT_VIOLATION",
+        "INTERNAL"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonValue": {},
+    "ResponseMeta": {
+      "additionalProperties": false,
+      "description": "Adapter metadata attached to every result, success or failure.",
+      "properties": {
+        "absorbed": {
+          "default": [],
+          "description": "Drift changes absorbed on this call (§3).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Absorbed",
+          "type": "array"
+        },
+        "adapter_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Adapter version that served the call (§4).",
+          "title": "Adapter Version"
+        },
+        "correlation_id": {
+          "description": "Echoed back (§8).",
+          "minLength": 1,
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "replayed": {
+          "default": false,
+          "description": "True if the result came from the idempotency store (§7).",
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "warnings": {
+          "default": [],
+          "description": "Deprecation or pending-review notices (§3/§4).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "correlation_id"
+      ],
+      "title": "ResponseMeta",
+      "type": "object"
+    },
+    "ToolFailure": {
+      "additionalProperties": false,
+      "description": "A failed tool call. The error is always a member of the shared enum.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/AdapterError",
+          "description": "Agent-facing error."
+        },
+        "kind": {
+          "const": "failure",
+          "default": "failure",
+          "description": "Discriminator.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "meta": {
+          "$ref": "#/$defs/ResponseMeta",
+          "description": "Adapter metadata."
+        }
+      },
+      "required": [
+        "error",
+        "meta"
+      ],
+      "title": "ToolFailure",
+      "type": "object"
+    },
+    "ToolSuccess": {
+      "additionalProperties": false,
+      "description": "A successful tool call.",
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/JsonObject",
+          "description": "Canonical tool output."
+        },
+        "kind": {
+          "const": "success",
+          "default": "success",
+          "description": "Discriminator.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "meta": {
+          "$ref": "#/$defs/ResponseMeta",
+          "description": "Adapter metadata."
+        }
+      },
+      "required": [
+        "content",
+        "meta"
+      ],
+      "title": "ToolSuccess",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Result passed back up the stage chain.\n\n``delivery`` is internal: it is removed at the MCP boundary and never reaches an agent.\nIt is None when the call never reached a connector (e.g. rejected by an earlier stage).",
+  "properties": {
+    "delivery": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeliveryStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Connector-reported delivery status. Internal only."
+    },
+    "outcome": {
+      "description": "Success or failure, discriminated by kind.",
+      "discriminator": {
+        "mapping": {
+          "failure": "#/$defs/ToolFailure",
+          "success": "#/$defs/ToolSuccess"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ToolSuccess"
+        },
+        {
+          "$ref": "#/$defs/ToolFailure"
+        }
+      ],
+      "title": "Outcome"
+    }
+  },
+  "required": [
+    "outcome"
+  ],
+  "title": "ToolResult",
+  "type": "object"
+}

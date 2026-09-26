@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "ContractField": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/ContractType"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allowed values for enums.",
+          "title": "Values"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "ContractField",
+      "type": "object"
+    },
+    "ContractType": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "enum",
+        "datetime"
+      ],
+      "title": "ContractType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "fields": {
+      "description": "Canonical output fields.",
+      "items": {
+        "$ref": "#/$defs/ContractField"
+      },
+      "title": "Fields",
+      "type": "array"
+    },
+    "inputs": {
+      "default": [],
+      "description": "Canonical input fields.",
+      "items": {
+        "$ref": "#/$defs/ContractField"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "tool": {
+      "minLength": 1,
+      "title": "Tool",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tool",
+    "version",
+    "fields"
+  ],
+  "title": "CanonicalContract",
+  "type": "object"
+}

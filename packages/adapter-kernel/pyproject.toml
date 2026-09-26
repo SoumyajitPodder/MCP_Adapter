@@ -1,0 +1,14 @@
+[project]
+name = "adapter-kernel"
+# Draft: nothing here is frozen until Romik and the owner agree (brief §0.4, DESIGN.md M0 §5).
+version = "0.0.1"
+description = "Shared kernel for the MCP adapter: error taxonomy, call context, pipeline stages, shapes"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.11,<3",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+

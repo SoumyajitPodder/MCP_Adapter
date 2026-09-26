@@ -1,0 +1,25 @@
+# Python / tooling
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.import_linter_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Secrets: local env files are never committed (CI also fails if one is tracked).
+.env
+.env.*
+!.env.example
+
+# CI scratch
+audit-requirements.txt
+runtime-requirements.txt
+sbom.cdx.json

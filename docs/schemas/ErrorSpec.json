@@ -1,0 +1,40 @@
+{
+  "$defs": {
+    "RetryPolicy": {
+      "description": "Whether, and when, an agent may retry the same call with the same idempotency key.",
+      "enum": [
+        "never",
+        "immediate",
+        "after_delay"
+      ],
+      "title": "RetryPolicy",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Fixed properties of an error code.",
+  "properties": {
+    "agent_message": {
+      "description": "Fixed agent-facing text. Never interpolated.",
+      "minLength": 1,
+      "title": "Agent Message",
+      "type": "string"
+    },
+    "owner": {
+      "description": "Brief section that raises this code.",
+      "title": "Owner",
+      "type": "string"
+    },
+    "retry": {
+      "$ref": "#/$defs/RetryPolicy",
+      "description": "Retry guidance returned to the agent."
+    }
+  },
+  "required": [
+    "retry",
+    "owner",
+    "agent_message"
+  ],
+  "title": "ErrorSpec",
+  "type": "object"
+}

@@ -1,0 +1,310 @@
+{
+  "$defs": {
+    "Behavior": {
+      "description": "What a tool does to upstream state. Drives idempotency (§7) and scope checks (§9).",
+      "enum": [
+        "read_only",
+        "mutating",
+        "destructive"
+      ],
+      "title": "Behavior",
+      "type": "string"
+    },
+    "Classification": {
+      "description": "How safe a detected change is for existing consumers.",
+      "enum": [
+        "COMPATIBLE",
+        "REVIEW_REQUIRED",
+        "BREAKING",
+        "UNKNOWN"
+      ],
+      "title": "Classification",
+      "type": "string"
+    },
+    "ErrorCode": {
+      "description": "Every error an agent can receive. Nothing else is ever returned.",
+      "enum": [
+        "INVALID_INPUT",
+        "NOT_AUTHORIZED",
+        "VERSION_NOT_PERMITTED",
+        "SCOPE_VIOLATION",
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "IDEMPOTENCY_KEY_CONFLICT",
+        "DUPLICATE_IN_PROGRESS",
+        "RECONCILIATION_PENDING",
+        "DRIFT_BLOCKED",
+        "UPSTREAM_UNAVAILABLE",
+        "CONTRACT_VIOLATION",
+        "INTERNAL"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "Outcome": {
+      "description": "Result of a stage or call.",
+      "enum": [
+        "ok",
+        "error",
+        "denied"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "SpanName": {
+      "description": "Every span the adapter emits. Low cardinality by construction.",
+      "enum": [
+        "tool.call",
+        "access.authenticate",
+        "access.check",
+        "lifecycle.gate",
+        "input.validate",
+        "idempotency.reserve",
+        "backend.call",
+        "drift.absorb",
+        "output.validate"
+      ],
+      "title": "SpanName",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One observable step of one tool call.",
+  "properties": {
+    "adapter_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Serving adapter version.",
+      "title": "Adapter Version"
+    },
+    "agent_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Authenticated agent; None before §9 runs.",
+      "title": "Agent Id"
+    },
+    "backend": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Upstream backend id.",
+      "title": "Backend"
+    },
+    "behavior": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Behavior"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Tool behavior, once known."
+    },
+    "correlation_id": {
+      "description": "Business-level join key.",
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "drift_classification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Classification"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Drift classification (§3), if drift was handled."
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set exactly when the outcome is not ok."
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Links to §7.",
+      "title": "Idempotency Key"
+    },
+    "idempotency_state": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "§7 state change, if any.",
+      "title": "Idempotency State"
+    },
+    "interface": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "rest, soap, file or queue.",
+      "title": "Interface"
+    },
+    "latency_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Step latency.",
+      "title": "Latency Ms"
+    },
+    "mapping_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Mapping used (§3).",
+      "title": "Mapping Id"
+    },
+    "outcome": {
+      "$ref": "#/$defs/Outcome",
+      "description": "Step outcome."
+    },
+    "payload_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Pointer into the payload store. Never the body.",
+      "title": "Payload Ref"
+    },
+    "replayed": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Served from the §7 store.",
+      "title": "Replayed"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "description": "Bumped on any change.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "semantic_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Resolved version; None before resolution.",
+      "title": "Semantic Version"
+    },
+    "span_id": {
+      "description": "Span that emitted the event.",
+      "minLength": 1,
+      "title": "Span Id",
+      "type": "string"
+    },
+    "stage": {
+      "$ref": "#/$defs/SpanName",
+      "description": "Stage that emitted the event."
+    },
+    "timestamp": {
+      "description": "When the step finished.",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "tool": {
+      "description": "Tool name.",
+      "minLength": 1,
+      "title": "Tool",
+      "type": "string"
+    },
+    "trace_id": {
+      "description": "Distributed trace ID.",
+      "minLength": 1,
+      "title": "Trace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "timestamp",
+    "trace_id",
+    "span_id",
+    "correlation_id",
+    "agent_id",
+    "tool",
+    "semantic_version",
+    "stage",
+    "outcome"
+  ],
+  "title": "CallEvent",
+  "type": "object"
+}

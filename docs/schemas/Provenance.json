@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "ProvenanceKind": {
+      "description": "Strength of the evidence behind a shape (brief 5.3).",
+      "enum": [
+        "declared",
+        "observed",
+        "inferred"
+      ],
+      "title": "ProvenanceKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Where a shape came from and how much to trust it.",
+  "properties": {
+    "extracted_at": {
+      "description": "Extraction time, timezone-aware.",
+      "format": "date-time",
+      "title": "Extracted At",
+      "type": "string"
+    },
+    "extractor": {
+      "description": "Extractor that produced the shape.",
+      "minLength": 1,
+      "title": "Extractor",
+      "type": "string"
+    },
+    "extractor_version": {
+      "description": "Extractor version.",
+      "minLength": 1,
+      "title": "Extractor Version",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/ProvenanceKind",
+      "description": "How strong the evidence behind the shape is."
+    },
+    "sample_count": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Samples behind an observed or inferred shape; None when declared.",
+      "title": "Sample Count"
+    }
+  },
+  "required": [
+    "kind",
+    "sample_count",
+    "extractor",
+    "extractor_version",
+    "extracted_at"
+  ],
+  "title": "Provenance",
+  "type": "object"
+}

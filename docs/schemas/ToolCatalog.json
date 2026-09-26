@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "Behavior": {
+      "description": "What a tool does to upstream state. Drives idempotency (§7) and scope checks (§9).",
+      "enum": [
+        "read_only",
+        "mutating",
+        "destructive"
+      ],
+      "title": "Behavior",
+      "type": "string"
+    },
+    "CatalogEntry": {
+      "additionalProperties": false,
+      "description": "One released tool version. Stand-in for the tool registry (brief §1) until it exists.",
+      "properties": {
+        "behavior": {
+          "$ref": "#/$defs/Behavior"
+        },
+        "default": {
+          "default": false,
+          "description": "Served when the caller names no version.",
+          "title": "Default",
+          "type": "boolean"
+        },
+        "tool": {
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        },
+        "version": {
+          "description": "SemVer version.",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "version",
+        "behavior"
+      ],
+      "title": "CatalogEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "tools": {
+      "items": {
+        "$ref": "#/$defs/CatalogEntry"
+      },
+      "title": "Tools",
+      "type": "array"
+    }
+  },
+  "required": [
+    "tools"
+  ],
+  "title": "ToolCatalog",
+  "type": "object"
+}

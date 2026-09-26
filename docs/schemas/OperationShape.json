@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "FieldShape": {
+      "additionalProperties": false,
+      "description": "One field of an operation's input or output.",
+      "properties": {
+        "enum_values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allowed values. Set exactly when type is enum.",
+          "title": "Enum Values"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "date-time, a regex, or a fixed-width layout reference.",
+          "title": "Format"
+        },
+        "nullable": {
+          "description": "Field may be null when present.",
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "path": {
+          "description": "Field path, e.g. \"order.items[].sku\".",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "required": {
+          "description": "Field must be present.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/FieldType",
+          "description": "Normalized field type."
+        }
+      },
+      "required": [
+        "path",
+        "type",
+        "required",
+        "nullable"
+      ],
+      "title": "FieldShape",
+      "type": "object"
+    },
+    "FieldType": {
+      "description": "Normalized field type across all source kinds.",
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "object",
+        "array",
+        "datetime",
+        "enum",
+        "null"
+      ],
+      "title": "FieldType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One operation of a source, with fields in canonical order.",
+  "properties": {
+    "errors": {
+      "description": "Declared error identifiers.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Errors",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "inputs": {
+      "description": "Input fields, sorted by path.",
+      "items": {
+        "$ref": "#/$defs/FieldShape"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "name": {
+      "description": "Operation name within the source.",
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "outputs": {
+      "description": "Output fields, sorted by path.",
+      "items": {
+        "$ref": "#/$defs/FieldShape"
+      },
+      "title": "Outputs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "inputs",
+    "outputs",
+    "errors"
+  ],
+  "title": "OperationShape",
+  "type": "object"
+}

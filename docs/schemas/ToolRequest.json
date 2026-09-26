@@ -1,0 +1,24 @@
+{
+  "$defs": {
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "Validated-shape tool arguments. Carriers such as correlation ID live in the context.",
+  "properties": {
+    "arguments": {
+      "$ref": "#/$defs/JsonObject",
+      "description": "Tool arguments as sent by the agent."
+    }
+  },
+  "required": [
+    "arguments"
+  ],
+  "title": "ToolRequest",
+  "type": "object"
+}

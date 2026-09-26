@@ -1,0 +1,298 @@
+{
+  "$defs": {
+    "Classification": {
+      "description": "How safe a detected change is for existing consumers.",
+      "enum": [
+        "COMPATIBLE",
+        "REVIEW_REQUIRED",
+        "BREAKING",
+        "UNKNOWN"
+      ],
+      "title": "Classification",
+      "type": "string"
+    },
+    "ErrorCode": {
+      "description": "Every error an agent can receive. Nothing else is ever returned.",
+      "enum": [
+        "INVALID_INPUT",
+        "NOT_AUTHORIZED",
+        "VERSION_NOT_PERMITTED",
+        "SCOPE_VIOLATION",
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "IDEMPOTENCY_KEY_CONFLICT",
+        "DUPLICATE_IN_PROGRESS",
+        "RECONCILIATION_PENDING",
+        "DRIFT_BLOCKED",
+        "UPSTREAM_UNAVAILABLE",
+        "CONTRACT_VIOLATION",
+        "INTERNAL"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "Outcome": {
+      "description": "Result of a stage or call.",
+      "enum": [
+        "ok",
+        "error",
+        "denied"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything a span may carry. Identifiers and metadata only, never bodies.",
+  "properties": {
+    "absorbed_fields": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Field paths absorbed by drift handling.",
+      "title": "Absorbed Fields"
+    },
+    "adapter_state": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Lifecycle state (§4).",
+      "title": "Adapter State"
+    },
+    "adapter_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Serving adapter version.",
+      "title": "Adapter Version"
+    },
+    "agent_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Authenticated agent.",
+      "title": "Agent Id"
+    },
+    "backend": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Upstream backend id.",
+      "title": "Backend"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Business join key.",
+      "title": "Correlation Id"
+    },
+    "drift_classification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Classification"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Drift classification (§3)."
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Shared error code."
+    },
+    "failing_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Schema path that failed validation. A path, never a value.",
+      "title": "Failing Path"
+    },
+    "idempotency_state": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "§7 record state.",
+      "title": "Idempotency State"
+    },
+    "interface": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "rest, soap, file or queue.",
+      "title": "Interface"
+    },
+    "latency_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stage latency.",
+      "title": "Latency Ms"
+    },
+    "mapping_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Mapping used (§3).",
+      "title": "Mapping Id"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Outcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stage outcome."
+    },
+    "quarantine_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Output quarantine ref (§2).",
+      "title": "Quarantine Id"
+    },
+    "replayed": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Result served from §7 store.",
+      "title": "Replayed"
+    },
+    "rule_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Access rule that decided (§9).",
+      "title": "Rule Id"
+    },
+    "semantic_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Resolved tool version.",
+      "title": "Semantic Version"
+    },
+    "tool": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Tool name.",
+      "title": "Tool"
+    }
+  },
+  "title": "SpanAttributes",
+  "type": "object"
+}

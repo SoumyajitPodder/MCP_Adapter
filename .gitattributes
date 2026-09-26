@@ -1,0 +1,3 @@
+# LF everywhere: generated files (docs/SPEC.md, docs/schemas/) are compared byte-for-byte in CI,
+# and a Windows checkout with CRLF would make spec-fresh fail.
+* text=auto eol=lf

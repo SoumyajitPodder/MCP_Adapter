@@ -1,0 +1,9 @@
+# Synthetic example agent. TODO(owner): replace with real agent identities and owners.
+agent_id: order-status-agent
+owner: order-management-team
+scope: read
+grants:
+  - tool: order.get
+    versions: ">=1.0.0,<2.0.0"
+  - tool: service.get
+    versions: ">=1.0.0,<2.0.0"

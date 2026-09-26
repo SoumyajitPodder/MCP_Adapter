@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "ColumnSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enum_values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enum Values"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "nullable": {
+          "default": false,
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/FieldType"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "ColumnSpec",
+      "type": "object"
+    },
+    "FieldType": {
+      "description": "Normalized field type across all source kinds.",
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "object",
+        "array",
+        "datetime",
+        "enum",
+        "null"
+      ],
+      "title": "FieldType",
+      "type": "string"
+    },
+    "SampleFile": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Capture time; required for CSV files (JSONL lines carry their own).",
+          "title": "Captured At"
+        },
+        "path": {
+          "description": "Relative to the repository root.",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "SampleFile",
+      "type": "object"
+    },
+    "SourceKind": {
+      "description": "Kind of upstream artifact a shape was extracted from.",
+      "enum": [
+        "openapi",
+        "wsdl",
+        "file",
+        "queue",
+        "observed",
+        "canonical"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "delimiter": {
+      "default": ",",
+      "maxLength": 1,
+      "minLength": 1,
+      "title": "Delimiter",
+      "type": "string"
+    },
+    "enum_paths": {
+      "default": [],
+      "description": "Fields whose values form an enum.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Enum Paths",
+      "type": "array"
+    },
+    "kind": {
+      "$ref": "#/$defs/SourceKind"
+    },
+    "layout": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ColumnSpec"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Declared CSV layout.",
+      "title": "Layout"
+    },
+    "operation": {
+      "minLength": 1,
+      "title": "Operation",
+      "type": "string"
+    },
+    "samples": {
+      "items": {
+        "$ref": "#/$defs/SampleFile"
+      },
+      "minItems": 1,
+      "title": "Samples",
+      "type": "array"
+    },
+    "source_id": {
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "tools": {
+      "description": "Tools this source feeds.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Tools",
+      "type": "array"
+    },
+    "version": {
+      "description": "Upstream version the samples come from.",
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_id",
+    "kind",
+    "version",
+    "operation",
+    "tools",
+    "samples"
+  ],
+  "title": "SourceConfig",
+  "type": "object"
+}

@@ -1,0 +1,12 @@
+{"body": {"account": {"id": "ACC-3129"}, "activatedOn": "08/02/2026 08:00:00", "serviceId": "SVC-000200", "svcStatus": "ACTIVE"}, "captured_at": "2026-09-01T08:00:00Z"}
+{"body": {"account": {"id": "ACC-2921"}, "activatedOn": "08/02/2026 14:00:00", "serviceId": "SVC-000201", "svcStatus": "SUSPENDED"}, "captured_at": "2026-09-01T14:00:00Z"}
+{"body": {"account": {"id": "ACC-4846"}, "activatedOn": "08/02/2026 20:00:00", "serviceId": "SVC-000202", "svcStatus": "TERMINATED"}, "captured_at": "2026-09-01T20:00:00Z"}
+{"body": {"account": {"id": "ACC-7432"}, "activatedOn": "08/03/2026 02:00:00", "serviceId": "SVC-000203", "svcStatus": "ACTIVE"}, "captured_at": "2026-09-02T02:00:00Z"}
+{"body": {"account": {"id": "ACC-9476"}, "activatedOn": "08/03/2026 08:00:00", "serviceId": "SVC-000204", "svcStatus": "SUSPENDED"}, "captured_at": "2026-09-02T08:00:00Z"}
+{"body": {"account": {"id": "ACC-1137"}, "activatedOn": "08/03/2026 14:00:00", "serviceId": "SVC-000205", "svcStatus": "TERMINATED"}, "captured_at": "2026-09-02T14:00:00Z"}
+{"body": {"account": {"id": "ACC-1153"}, "activatedOn": "08/03/2026 20:00:00", "serviceId": "SVC-000206", "svcStatus": "ACTIVE"}, "captured_at": "2026-09-02T20:00:00Z"}
+{"body": {"account": {"id": "ACC-4882"}, "activatedOn": "08/04/2026 02:00:00", "serviceId": "SVC-000207", "svcStatus": "SUSPENDED"}, "captured_at": "2026-09-03T02:00:00Z"}
+{"body": {"account": {"id": "ACC-8510"}, "activatedOn": "08/04/2026 08:00:00", "serviceId": "SVC-000208", "svcStatus": "TERMINATED"}, "captured_at": "2026-09-03T08:00:00Z"}
+{"body": {"account": {"id": "ACC-2810"}, "activatedOn": "08/04/2026 14:00:00", "serviceId": "SVC-000209", "svcStatus": "ACTIVE"}, "captured_at": "2026-09-03T14:00:00Z"}
+{"body": {"account": {"id": "ACC-9231"}, "activatedOn": "08/04/2026 20:00:00", "serviceId": "SVC-000210", "svcStatus": "SUSPENDED"}, "captured_at": "2026-09-03T20:00:00Z"}
+{"body": {"account": {"id": "ACC-7847"}, "activatedOn": "08/05/2026 02:00:00", "serviceId": "SVC-000211", "svcStatus": "TERMINATED"}, "captured_at": "2026-09-04T02:00:00Z"}

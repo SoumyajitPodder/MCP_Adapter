@@ -1,0 +1,8 @@
+# Canonical contract (field-list format of the tool registry prototype, M4-Q2).
+tool: order.get
+version: "1.2.0"
+fields:
+  - {name: order_id, type: string}
+  - {name: status, type: enum, values: [in_progress, completed, cancelled]}
+  - {name: customer_id, type: string}
+  - {name: created_at, type: datetime}

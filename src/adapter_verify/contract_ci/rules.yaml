@@ -1,0 +1,172 @@
+# Contract diff rules (brief §5.5, DESIGN R-009/R-024). Each rule fires on one kind of change;
+# every structural difference the differ can see maps to exactly one rule.
+# upstream: classification when the adapter consumes a changed backend.
+# canonical: classification when a released tool contract changes (agents are the consumers).
+rules:
+  - id: OPERATION_REMOVED
+    direction: none
+    detects: operation present in base, absent in revision
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: every caller of the operation breaks
+  - id: OPERATION_ADDED
+    direction: none
+    detects: operation absent in base, present in revision
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    rationale: nothing depends on it yet
+  - id: OUTPUT_FIELD_REMOVED
+    direction: output
+    detects: output field present in base, absent in revision
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: consumers reading the field break
+  - id: OUTPUT_FIELD_ADDED
+    direction: output
+    detects: output field absent in base, present in revision
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    presence: true
+    rationale: consumers ignore fields they do not read
+  - id: INPUT_REQUIRED_FIELD_ADDED
+    direction: input
+    detects: new required input field
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: existing callers do not send it
+  - id: INPUT_OPTIONAL_FIELD_ADDED
+    direction: input
+    detects: new optional input field
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    presence: true
+    rationale: existing callers are unaffected
+  - id: INPUT_FIELD_REMOVED
+    direction: input
+    detects: input field present in base, absent in revision
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: callers still send it and strict validation rejects unknown fields
+  - id: TYPE_CHANGED
+    direction: both
+    detects: field type differs
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: values no longer parse the same way
+  - id: OUTPUT_BECAME_OPTIONAL
+    direction: output
+    detects: required output field became optional
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: consumers assuming presence break
+  - id: OUTPUT_BECAME_REQUIRED
+    direction: output
+    detects: optional output field became required
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    presence: true
+    rationale: a stronger guarantee
+  - id: INPUT_BECAME_REQUIRED
+    direction: input
+    detects: optional input field became required
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: callers omitting it are rejected
+  - id: INPUT_BECAME_OPTIONAL
+    direction: input
+    detects: required input field became optional
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    presence: true
+    rationale: a weaker requirement
+  - id: OUTPUT_BECAME_NULLABLE
+    direction: output
+    detects: output field may now be null
+    upstream: REVIEW_REQUIRED
+    canonical: REVIEW_REQUIRED
+    rationale: consumers may not handle null; a human decides
+  - id: OUTPUT_BECAME_NON_NULLABLE
+    direction: output
+    detects: output field may no longer be null
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    rationale: a stronger guarantee
+  - id: INPUT_BECAME_NULLABLE
+    direction: input
+    detects: input field now accepts null
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    rationale: a weaker requirement
+  - id: INPUT_BECAME_NON_NULLABLE
+    direction: input
+    detects: input field no longer accepts null
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: callers sending null are rejected
+  - id: OUTPUT_ENUM_VALUE_ADDED
+    direction: output
+    detects: new value in an output enum
+    upstream: REVIEW_REQUIRED
+    canonical: REVIEW_REQUIRED
+    compatible_with_minor_bump: true
+    rationale: the new value has no agreed meaning until someone maps it
+  - id: OUTPUT_ENUM_VALUE_REMOVED
+    direction: output
+    detects: output enum lost a value
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    rationale: consumers see a subset of known values
+  - id: INPUT_ENUM_VALUE_ADDED
+    direction: input
+    detects: input enum gained a value
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    rationale: existing values still accepted
+  - id: INPUT_ENUM_VALUE_REMOVED
+    direction: input
+    detects: input enum lost a value
+    upstream: BREAKING
+    canonical: BREAKING
+    rationale: callers sending it are rejected
+  - id: FORMAT_CHANGED
+    direction: both
+    detects: format of a field changed (e.g. date layout)
+    upstream: REVIEW_REQUIRED
+    canonical: BREAKING
+    rationale: day/month order and timezone must be confirmed; agents cannot re-parse
+  - id: ERROR_ADDED
+    direction: none
+    detects: new declared error
+    upstream: REVIEW_REQUIRED
+    canonical: REVIEW_REQUIRED
+    rationale: callers may not handle it
+  - id: ERROR_REMOVED
+    direction: none
+    detects: declared error no longer returned
+    upstream: COMPATIBLE
+    canonical: COMPATIBLE
+    rationale: fewer failure modes
+  - id: FIELD_RENAMED_KNOWN
+    direction: both
+    detects: removed plus added field linked by a registered alias
+    upstream: COMPATIBLE
+    canonical: BREAKING
+    rationale: the mapping absorbs the rename; agents would still see a new name
+  - id: FIELD_RENAMED_SUSPECTED
+    direction: both
+    detects: removed plus added field of the same type with similar names and no alias
+    upstream: REVIEW_REQUIRED
+    canonical: BREAKING
+    rationale: probably a rename; a human confirms before it is absorbed
+  - id: SOURCE_UNPARSEABLE
+    direction: none
+    detects: the source could not be extracted into a shape
+    upstream: UNKNOWN
+    canonical: UNKNOWN
+    rationale: impact cannot be determined; fail closed
+  - id: UNCLASSIFIED_CHANGE
+    direction: none
+    detects: shapes differ but no rule matched
+    upstream: UNKNOWN
+    canonical: UNKNOWN
+    rationale: never pass a change nobody has classified

@@ -1,0 +1,58 @@
+{
+  "content_hash": "254cbf916d5ece8f23686ba44e118c30fd6bb692f366c3397167f143020af345",
+  "operations": [
+    {
+      "errors": [],
+      "inputs": [],
+      "name": "inventory_YYYYMMDD.csv",
+      "outputs": [
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "item_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "site_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum_values": [
+            "AVAIL",
+            "DECOM",
+            "RSVD"
+          ],
+          "format": null,
+          "nullable": false,
+          "path": "status",
+          "required": true,
+          "type": "enum"
+        },
+        {
+          "enum_values": null,
+          "format": "ISO",
+          "nullable": false,
+          "path": "updated_at",
+          "required": true,
+          "type": "datetime"
+        }
+      ]
+    }
+  ],
+  "provenance": {
+    "extracted_at": "2026-09-26T00:32:51.527673Z",
+    "extractor": "file",
+    "extractor_version": "1",
+    "kind": "declared",
+    "sample_count": null
+  },
+  "source_id": "inventory-feed.file.snapshot",
+  "source_kind": "file",
+  "source_version": "v1"
+}

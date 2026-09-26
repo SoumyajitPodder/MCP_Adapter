@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "description": "``tool@version`` → content hash of every released contract. Changes only via review.",
+  "properties": {
+    "released": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Released",
+      "type": "object"
+    }
+  },
+  "title": "ReleaseLock",
+  "type": "object"
+}

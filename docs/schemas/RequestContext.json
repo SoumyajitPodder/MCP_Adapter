@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "description": "Everything known about a call before the caller is authenticated.",
+  "properties": {
+    "correlation_id": {
+      "description": "Business-level join key (§8).",
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "correlation_id_generated": {
+      "description": "True when the adapter generated the ID because the caller supplied none.",
+      "title": "Correlation Id Generated",
+      "type": "boolean"
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Caller-supplied key. Required for state-changing tools (§7).",
+      "title": "Idempotency Key"
+    },
+    "requested_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Version the caller asked for, or None to let the registry resolve it.",
+      "title": "Requested Version"
+    },
+    "tool": {
+      "description": "Tool name as called, e.g. order.get.",
+      "minLength": 1,
+      "title": "Tool",
+      "type": "string"
+    },
+    "trace_id": {
+      "description": "Distributed trace ID.",
+      "minLength": 1,
+      "title": "Trace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "correlation_id",
+    "correlation_id_generated",
+    "trace_id",
+    "tool",
+    "requested_version",
+    "idempotency_key"
+  ],
+  "title": "RequestContext",
+  "type": "object"
+}

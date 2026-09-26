@@ -1,0 +1,66 @@
+{
+  "content_hash": "a9d64fd7483618d80e6932af81eb75b6e38e706e1126198b4bb48cc703e40d3b",
+  "operations": [
+    {
+      "errors": [],
+      "inputs": [],
+      "name": "GET /orders/{id}",
+      "outputs": [
+        {
+          "enum_values": null,
+          "format": "US",
+          "nullable": false,
+          "path": "createdDate",
+          "required": true,
+          "type": "datetime"
+        },
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "customer",
+          "required": true,
+          "type": "object"
+        },
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "customer.id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum_values": null,
+          "format": null,
+          "nullable": false,
+          "path": "orderId",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "enum_values": [
+            "CANCELLED",
+            "COMPLETE",
+            "INPROG"
+          ],
+          "format": null,
+          "nullable": false,
+          "path": "orderState",
+          "required": true,
+          "type": "enum"
+        }
+      ]
+    }
+  ],
+  "provenance": {
+    "extracted_at": "2026-09-26T00:32:48.977502Z",
+    "extractor": "observed",
+    "extractor_version": "1",
+    "kind": "inferred",
+    "sample_count": 12
+  },
+  "source_id": "order-management.rest.get-order",
+  "source_kind": "observed",
+  "source_version": "v2"
+}
