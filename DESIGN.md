@@ -7,6 +7,54 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-26 — Session 17: M5b (LLM agent and judge) design proposal
+
+The owner chose the Gemini API (no resources for a local model). Everything below except D-083 is **`pending`**; implementation needs approval of the dependency (M5b-Q1) and the model pins (M5b-Q2).
+
+| ID | Decision | Status |
+| --- | --- | --- |
+| D-083 | M5b uses the Gemini API for the reference agent and the judge. Ports stay provider-neutral. | approved by owner |
+
+Facts checked on 2026-09-26 against Google's documentation (ai.google.dev):
+- The official Python SDK is `google-genai` (GA since May 2025). The older `google-generativeai` is deprecated.
+- Stable models with function calling and structured output: the Gemini 3.x Flash line (`gemini-3.5-flash` … `gemini-3.8-flash`, plus Flash-Lite variants). All have a free tier.
+- **Free tier: content is used to improve Google's products.** Paid tier: it isn't. Acceptable here only because every golden input is synthetic (§0.5); anything resembling real data needs the paid tier. This must stay true, so lint already rejects non-synthetic fixture paths.
+
+**1. Adapters** (`golden/adapters/gemini.py`, wired only in `composition`)
+- `GeminiAgent` (`harness: reference`): a tool-use loop. The system prompt comes from `golden_tasks/<agent>/agent.yaml` (new field `system_prompt`); tools from `ToolView`s as function declarations (their JSON Schema); each function call goes through the sandbox `ToolCaller`; the loop ends on a text answer or at `max_tool_calls`. Reports token usage and the model version the API returns.
+- `GeminiJudge`: one request per answer, with structured output constrained to the `JudgeVerdict` JSON Schema, then validated by Pydantic (invalid → `JUDGE_ERROR`).
+- Both: `temperature=0`, recorded with results. It reduces variance but isn't a guarantee; repeats and thresholds still decide.
+
+**2. Configuration**
+- `ADAPTER_GOLDEN_GEMINI_API_KEY` (`SecretStr`): read only by the composition root and passed only to the two adapters. It's never reachable through the `SecretManager` port (R-012) and is never logged. Set it in the environment; it's never committed.
+- `ADAPTER_GOLDEN_JUDGE_MODEL`: the pinned judge model. Agent models are pinned per agent in `agent.yaml` (`model`).
+- `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS` must include `generativelanguage.googleapis.com` for runs; the tripwire blocks everything else.
+- The sentinel check already covers everything sent to and received from the model.
+
+**3. Rate limits and cost**
+- Runs are sequential. The SDK's retry with backoff handles 429s, and a run that still fails is `HARNESS_ERROR`, never a silent retry.
+- The suite token budget is set after the first measured run (§11 rule). README costs are updated with measured numbers.
+
+**4. Calibration and canaries**
+- `tests/golden_selftest/calibration/`: about 6 synthetic known-good and known-bad transcripts for the pilot rubrics. They are tuned against the pinned judge; the judge must classify all of them before its verdicts count.
+- The canaries from Session 15: `ENUM_SWAP`, `DESCRIPTION_MISLEAD` (hand-written), `DROP_OPTIONAL_FIELD`, `TIMEZONE_SHIFT`. The CLI gets `golden canaries` (exit 1 on any `MISSED`).
+- §6.11 acceptance: a misleading `order.get` description makes a pilot task fail, and the report shows the diff.
+
+**5. CI**
+- A `golden` job runs on PRs from this repository only (fork PRs never get the key) and on a nightly schedule, with the key as a GitHub secret. Scheduled runs include the canaries.
+- The network-less container with an egress allow-list (D-074) is required before this job is enabled.
+
+**Open questions for M5b**
+
+| ID | Question | Recommendation |
+| --- | --- | --- |
+| M5b-Q1 | Approve the `google-genai` dependency? Alternatives: plain REST over an HTTP client (more code of ours for request and response shapes), or Gemini's OpenAI-compatible endpoint through the `openai` SDK (portable, but it can lag Gemini features) | `google-genai`: official, GA, typed, and supports function calling and schema-constrained output |
+| M5b-Q2 | Model pins | Agent under test: `gemini-3.5-flash`. Judge: `gemini-3.8-flash`, a different and stronger model to limit self-preference bias. Both on the free tier. |
+| M5b-Q3 | Is the free tier's "content used to improve products" acceptable for synthetic golden data? | Yes for synthetic data only; the paid tier before anything else |
+| M5b-Q4 | Who adds the API key to GitHub secrets, and when is the CI container set up? | The owner, when enabling the CI job; local runs work now with the key in the environment |
+
+---
+
 ## 2026-09-26 — Session 16: M5a (golden-task core, offline) implemented
 
 The owner approved the Session 15 design and the recommended answers to M5-Q1 and M5-Q3–Q9, on condition that they fit production practice and the brief. Three of them were adjusted to meet that bar; D-074 records the result.
