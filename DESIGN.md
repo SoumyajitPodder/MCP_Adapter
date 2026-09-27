@@ -7,6 +7,31 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-26 — Session 20: review against the brief and Romik's branches; fixes
+
+Reviewed all of §5–9 against the brief, and against Romik's two branches (`romikChanges`: Python/Flask sandbox; `Romik-lifecycle`: browser JS lifecycle prototype). His contracts for `order.get`, `service.get` and `inventory.snapshot` match `contracts/`.
+
+Fixed:
+- `ToolResult.delivery` is required (`b0e368c`). A later stage that rebuilt a result after an acked write dropped the status, so §7 freed the key and a retry executed the write again. Proposal item 10 for Romik.
+- The contract review label counts only when an individual CODEOWNER applied it; the report and approver are kept as a 90-day CI artifact (`45d6453`). `/golden_tasks/`, `/tests/golden_selftest/` and `/scripts/` are now code-owned.
+- Redaction drops data keys containing `.`, `[` or `]`, which could alias a nested public path; such schema property names are rejected (`c5dac91`).
+- A fresh cached signing key is served while the JWKS refreshes; refreshes are single-flight (`33ddf8e`).
+
+**Correction to Session 11 (M4 gate row):** the CI override was said to be "recorded in the committed report". Nothing was committed; the report went to the job summary only. It is now a retained artifact with the approver (R-014 still governs ingestion into the audit store).
+
+| ID | Decision / risk | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-091 | `delivery` has no default; `None` is passed explicitly for pre-connector results; `ToolResult.with_outcome()` keeps the status | Fail-safe at construction instead of relying on every stage to copy a field. Rejected: keep the default and add a test per stage (misses stages we don't own). | pending (needs Romik) |
+| D-092 | Review label approval is checked from the PR's issue events against individual CODEOWNERS; team owners don't count | Label rights are wider than code ownership. Still relies on branch protection: a PR can edit the workflow or script, which CODEOWNERS covers. | pending |
+| R-029 | Idempotency timestamps (reservation, lease, sweep) come from the adapter's clock, not the database's `now()` as in the brief's SQL | With several instances, clock skew shifts lease expiry. Options: DB `now()` in the SQL, or bound skew operationally (NTP) and keep the lease much longer than the skew. | pending |
+| R-030 | `RedactionPolicy` is built and tested but no production sink uses it yet: bodies go only to the payload store | §8.10 holds today because no body reaches a sink. It needs wiring once `x-sensitivity` is in the contract format (Romik) or a body-bearing sink is added. | pending |
+| R-031 | Romik's classifier (JS) and ours disagree: envelope added, number→string, case-style renames and unmapped removals are COMPATIBLE there and BREAKING here; unparseable is BREAKING there and UNKNOWN here | CI is stricter than the runtime in every case, so nothing unsafe passes, but it will block changes the runtime absorbs. Brief §3.1 wants one classifier. | pending-romik |
+| R-032 | Integration gaps with Romik: no kernel adoption yet; `CONTRACT_SUNSET` is not in the error enum; lifecycle states differ (no `draft`; `rolled_back`, contract `ACTIVE/DEPRECATED/SUNSET`); his sandbox targets Python 3.14, ours 3.12 | Each needs a joint decision before §6.9 gating and the shared pipeline can connect. | pending-romik |
+
+Deferred: the §11 overhead benchmark in CI waits for the budget decision (R-015). The §14 orientation document is CONTRIBUTING.md in this repo.
+
+---
+
 ## 2026-09-26 — Session 19: first live Gemini run; judge errors reported
 
 The first live run found two harness bugs, fixed in `85abfae`:
