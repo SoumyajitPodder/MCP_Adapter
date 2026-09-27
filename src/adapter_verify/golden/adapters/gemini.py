@@ -12,6 +12,7 @@ from typing import Any, Final, Protocol
 
 import rfc8785
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from adapter_kernel.errors import ERROR_SPECS
@@ -20,7 +21,13 @@ from adapter_kernel.pipeline import ToolFailure, ToolSuccess
 from adapter_verify.golden.domain.judge import AnswerEvidence, JudgeVerdict
 from adapter_verify.golden.domain.results import TokenUsage
 from adapter_verify.golden.domain.tasks import RunLimits
-from adapter_verify.golden.ports import AgentRun, ToolCall, ToolCaller, ToolView
+from adapter_verify.golden.ports import (
+    AgentRun,
+    JudgeUnavailableError,
+    ToolCall,
+    ToolCaller,
+    ToolView,
+)
 
 REFERENCE_HARNESS: Final = "reference"
 GEMINI_HOST: Final = "generativelanguage.googleapis.com"
@@ -191,13 +198,16 @@ class GeminiJudge:
             indent=2,
             sort_keys=True,
         )
-        response = await self._models.generate_content(
-            model=self._model,
-            contents=request,
-            config=types.GenerateContentConfig(
-                system_instruction=_JUDGE_INSTRUCTIONS,
-                response_mime_type="application/json",
-                response_json_schema=_VERDICT_SCHEMA,
-            ),
-        )
+        try:
+            response = await self._models.generate_content(
+                model=self._model,
+                contents=request,
+                config=types.GenerateContentConfig(
+                    system_instruction=_JUDGE_INSTRUCTIONS,
+                    response_mime_type="application/json",
+                    response_json_schema=_VERDICT_SCHEMA,
+                ),
+            )
+        except genai_errors.APIError as exc:  # code and status only: the message is free text
+            raise JudgeUnavailableError(f"{exc.code} {exc.status}") from exc
         return JudgeVerdict.model_validate_json(response.text or "")

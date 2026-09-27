@@ -128,7 +128,7 @@ Access (§9) and idempotency (§7) stages exist; the others arrive with Romik's 
 
 ## Costs
 
-- Golden runs call Gemini: per suite run, one agent conversation per task run (5 tasks × 3 runs) plus one judge call per judged run and 7 calibration calls. `golden canaries` adds a baseline suite plus one partial suite per canary. On the free tier this costs nothing but is rate-limited; token counts are recorded in each results file and will be written here after the first real run.
+- Golden runs call Gemini: per suite run, one agent conversation per task run (5 tasks × 3 runs) plus one judge call per judged run and 7 calibration calls. `golden canaries` adds a baseline suite plus one partial suite per canary. On the free tier this costs nothing but is rate-limited (20 requests per model per day, measured 2026-09-26), so a full cycle spans several days; token counts are recorded in each results file and will be written here after the first real run.
 - The audit trail writes one row per audited decision. Anchoring adds one row per changed chain per run.
 
 ## Constraints

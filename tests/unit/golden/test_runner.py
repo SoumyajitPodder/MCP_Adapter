@@ -12,7 +12,13 @@ from adapter_verify.golden.domain.judge import AnswerEvidence, CalibrationCase, 
 from adapter_verify.golden.domain.results import ErrorKind, RunOutcome, TaskVerdict, TokenUsage
 from adapter_verify.golden.domain.tasks import RunLimits
 from adapter_verify.golden.fakes import RecordingEgressGuard, ScriptedAgent, ScriptedJudge
-from adapter_verify.golden.ports import AgentRun, ToolCall, ToolCaller, ToolView
+from adapter_verify.golden.ports import (
+    AgentRun,
+    JudgeUnavailableError,
+    ToolCall,
+    ToolCaller,
+    ToolView,
+)
 from tests.unit.golden.support import Repo, read_task, run, write_task
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
@@ -140,18 +146,26 @@ async def test_uncalibrated_judge_is_never_trusted(repo: Repo) -> None:
 
 
 @pytest.mark.parametrize(
-    "verdict",
-    [RuntimeError("judge down"), JudgeVerdict(score=0.1, passed=True, reasons=("x",))],
+    ("verdict", "detail"),
+    [
+        (JudgeUnavailableError("429 RESOURCE_EXHAUSTED"), "judge failed: 429 RESOURCE_EXHAUSTED"),
+        (RuntimeError("judge down"), "judge failed: builtins.RuntimeError"),
+        (JudgeVerdict(score=0.1, passed=True, reasons=("x",)), "judge verdict inconsistent"),
+    ],
 )
 async def test_judge_failure_or_inconsistency_is_a_judge_error(
-    repo: Repo, verdict: JudgeVerdict | Exception
+    repo: Repo, verdict: JudgeVerdict | Exception, detail: str
 ) -> None:
     repo.put_task(read_task(expect_answer={"rubric": "r"}, runs=1, threshold=1))
     judge = ScriptedJudge([GOOD, verdict])
     results = await run(
         repo, ScriptedAgent([GET]), ["order-inflight"], judge=judge, calibration=CASES
     )
-    assert results.tasks[0].runs[0].error is ErrorKind.JUDGE_ERROR
+    run1 = results.tasks[0].runs[0]
+    assert run1.error is ErrorKind.JUDGE_ERROR
+    assert run1.detail is not None
+    assert run1.detail.startswith(detail)
+    assert "judge down" not in run1.detail  # exception messages never reach the report
 
 
 async def test_no_answer_fails_the_answer_layer(repo: Repo) -> None:

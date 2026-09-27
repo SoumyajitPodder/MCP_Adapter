@@ -20,10 +20,12 @@ from adapter_verify.golden.domain.assertions import (
     check_state,
 )
 from adapter_verify.golden.domain.judge import (
+    NO_CALIBRATION_CASES,
     AnswerEvidence,
     CalibrationCase,
+    CalibrationMiss,
     JudgeVerdict,
-    calibration_misses,
+    calibration_miss,
 )
 from adapter_verify.golden.domain.results import (
     AgentIdentity,
@@ -42,6 +44,7 @@ from adapter_verify.golden.ports import (
     EgressGuard,
     HarnessFactory,
     Judge,
+    JudgeUnavailableError,
     SandboxFactory,
     SandboxSession,
     ToolCall,
@@ -172,24 +175,37 @@ class GoldenRunner:
             update={"quarantine_recommended": quarantine_recommended(result, previous)}
         )
 
-    async def calibrate(self) -> list[str] | None:
-        """Case IDs the judge got wrong (§6.5); None without a judge."""
+    async def calibrate(self) -> list[CalibrationMiss] | None:
+        """Cases the judge got wrong (§6.5); None without a judge. A judge with no cases is never
+        calibrated. Stops at the first judge failure: the rest would fail the same way and spend
+        quota."""
         if self._judge is None:
             return None
-        verdicts = [await self._grade(c.rubric, c.evidence) for c in self._calibration]
-        return calibration_misses(self._calibration, verdicts)
+        if not self._calibration:
+            return [NO_CALIBRATION_CASES]
+        misses = []
+        for case in self._calibration:
+            miss = calibration_miss(case, await self._grade(case.rubric, case.evidence))
+            if miss is not None:
+                misses.append(miss)
+                if miss.judge_error is not None:
+                    break
+        return misses
 
     async def _calibrate(self) -> bool | None:
         misses = await self.calibrate()
         return None if misses is None else not misses
 
-    async def _grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict | None:
+    async def _grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict | str:
+        """The verdict, or why there is none."""
         if self._judge is None:  # pragma: no cover - callers check first
-            return None
+            return "no judge"
         try:
             return await self._judge.grade(rubric, evidence)
-        except Exception:  # noqa: BLE001 - any judge failure is a missing verdict
-            return None
+        except JudgeUnavailableError as exc:
+            return str(exc)
+        except Exception as exc:  # noqa: BLE001 - any judge failure is a missing verdict
+            return safe_exception_summary(exc)
 
     async def _run_once(
         self,
@@ -262,10 +278,10 @@ class GoldenRunner:
             answer=answer,
         )
         verdict = await self._grade(rubric, evidence)
-        if verdict is None or not verdict.consistent:
-            return attempt.error(
-                ErrorKind.JUDGE_ERROR, "judge failed or was inconsistent", judge=verdict
-            )
+        if isinstance(verdict, str):
+            return attempt.error(ErrorKind.JUDGE_ERROR, f"judge failed: {verdict}")
+        if not verdict.consistent:
+            return attempt.error(ErrorKind.JUDGE_ERROR, "judge verdict inconsistent", judge=verdict)
         if not verdict.passed:
             failure = LayerFailure(
                 layer=Layer.ANSWER, expected=rubric, actual="; ".join(verdict.reasons)

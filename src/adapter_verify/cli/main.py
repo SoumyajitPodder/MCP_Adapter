@@ -698,8 +698,11 @@ def golden_calibrate() -> None:
     if misses is None:
         _fail("no judge: set ADAPTER_GOLDEN_GEMINI_API_KEY (see .env.example)")
         return
-    for case_id in misses:
-        click.echo(f"MISSED	{case_id}")
+    for miss in misses:
+        if miss.judge_error is None:
+            click.echo(f"MISSED\t{miss.case_id}")
+        else:
+            click.echo(f"ERROR\t{miss.case_id}\t{miss.judge_error}")
     if misses:
         sys.exit(EXIT_FAILED)
     click.echo(f"judge {g.settings.judge_model} classified every calibration case")

@@ -13,7 +13,14 @@ from adapter_verify.cli.main import cli
 from adapter_verify.golden.domain.judge import JudgeVerdict
 from adapter_verify.golden.domain.tasks import AgentConfig, RunLimits
 from adapter_verify.golden.fakes import ScriptedAgent, ScriptedJudge
-from adapter_verify.golden.ports import AgentHarness, AgentRun, ToolCall, ToolCaller, ToolView
+from adapter_verify.golden.ports import (
+    AgentHarness,
+    AgentRun,
+    JudgeUnavailableError,
+    ToolCall,
+    ToolCaller,
+    ToolView,
+)
 from tests.unit.golden.support import DEFINITIONS, Repo, read_task
 
 pytestmark = pytest.mark.unit
@@ -227,3 +234,23 @@ def test_calibrate(repo: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
     verdicts[0] = JudgeVerdict(score=0.1, passed=False, reasons=("no",))
     missed = _golden("calibrate")
     assert (missed.exit_code, missed.output.strip()) == (1, "MISSED\tgood")
+
+
+def test_calibrate_stops_at_the_first_judge_error(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for case_id in ("a", "b"):
+        repo.write(
+            f"tests/golden_selftest/calibration/{case_id}.yaml",
+            {
+                "case_id": case_id,
+                "rubric": "r",
+                "evidence": {"prompt": "p", "tool_results": [], "answer": "a"},
+                "expected_pass": True,
+            },
+        )
+    judge = ScriptedJudge([JudgeUnavailableError("429 RESOURCE_EXHAUSTED")])
+    monkeypatch.setattr(composition, "golden_judge", lambda _s, _m: judge)
+    out = _golden("calibrate")
+    assert (out.exit_code, out.output.strip()) == (1, "ERROR\ta\t429 RESOURCE_EXHAUSTED")
+    assert len(judge.graded) == 1  # "b" would fail the same way; no quota spent on it

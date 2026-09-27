@@ -19,7 +19,13 @@ from adapter_verify.golden.domain.assertions import (
     json_equal,
 )
 from adapter_verify.golden.domain.definitions import ToolDefinition, argument_error
-from adapter_verify.golden.domain.judge import JudgeVerdict, calibration_misses
+from adapter_verify.golden.domain.judge import (
+    AnswerEvidence,
+    CalibrationCase,
+    CalibrationMiss,
+    JudgeVerdict,
+    calibration_miss,
+)
 from adapter_verify.golden.domain.report import render
 from adapter_verify.golden.domain.results import (
     ErrorKind,
@@ -347,7 +353,18 @@ def test_judge_verdicts_and_calibration() -> None:
     assert not JudgeVerdict(score=0.4, passed=True, reasons=("r",)).consistent
     with pytest.raises(ValidationError):
         JudgeVerdict(score=1.5, passed=True, reasons=("r",))
-    assert calibration_misses([], []) == ["<no calibration cases>"]
+    case = CalibrationCase(
+        case_id="c",
+        rubric="r",
+        evidence=AnswerEvidence(prompt="p", tool_results=(), answer="a"),
+        expected_pass=True,
+    )
+    assert calibration_miss(case, JudgeVerdict(score=0.9, passed=True, reasons=("r",))) is None
+    wrong = JudgeVerdict(score=0.1, passed=False, reasons=("r",))
+    inconsistent = JudgeVerdict(score=0.1, passed=True, reasons=("r",))
+    assert calibration_miss(case, wrong) == CalibrationMiss(case_id="c")
+    assert calibration_miss(case, inconsistent) == CalibrationMiss(case_id="c")
+    assert calibration_miss(case, "429 X") == CalibrationMiss(case_id="c", judge_error="429 X")
 
 
 def test_report_names_the_layer_the_change_and_the_recommendation() -> None:

@@ -66,6 +66,11 @@ class HarnessUnavailableError(Exception):
     """No harness of the configured kind exists (in M5a: none do)."""
 
 
+class JudgeUnavailableError(Exception):
+    """The judge gave no verdict. ``str()`` is a short, secret-free reason, e.g.
+    ``429 RESOURCE_EXHAUSTED``."""
+
+
 class HarnessFactory(Protocol):
     def __call__(self, config: AgentConfig) -> AgentHarness:
         """Build a harness. Raises HarnessUnavailableError."""
@@ -79,7 +84,8 @@ class Judge(Protocol):
     def model(self) -> str: ...
 
     async def grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict:
-        """May raise; the runner turns any failure into JUDGE_ERROR."""
+        """May raise, preferably JudgeUnavailableError; the runner turns any failure into
+        JUDGE_ERROR."""
         ...
 
 

@@ -35,7 +35,11 @@ def render(results: SuiteResults, description_diffs: Mapping[str, str]) -> str:
             "",
         ]
     elif results.judge_calibrated is False:
-        lines += ["**The judge failed calibration; its verdicts are not trusted.**", ""]
+        lines += [
+            "**The judge failed calibration; its verdicts are not trusted.** "
+            "`adapter-verify golden calibrate` shows why.",
+            "",
+        ]
     if results.budget_exceeded:
         lines += [f"**Suite token budget ({results.token_budget}) exceeded; runs stopped.**", ""]
     lines += [

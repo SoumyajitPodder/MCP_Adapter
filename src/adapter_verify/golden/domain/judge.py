@@ -1,7 +1,6 @@
 """Judge verdicts and calibration (brief §6.5). The judge itself is a port; its first adapter
 arrives with M5b."""
 
-from collections.abc import Sequence
 from typing import Final
 
 from pydantic import Field
@@ -41,17 +40,23 @@ class CalibrationCase(FrozenModel):
     expected_pass: bool
 
 
-def calibration_misses(
-    cases: Sequence[CalibrationCase], verdicts: Sequence[JudgeVerdict | None]
-) -> list[str]:
-    """Case IDs the judge got wrong. A missing or inconsistent verdict is a miss.
+class CalibrationMiss(FrozenModel):
+    """A case the judge didn't classify correctly."""
 
-    A judge with no calibration cases is never calibrated.
-    """
-    if not cases:
-        return ["<no calibration cases>"]
-    return [
-        case.case_id
-        for case, verdict in zip(cases, verdicts, strict=True)
-        if verdict is None or not verdict.consistent or verdict.passed != case.expected_pass
-    ]
+    case_id: str
+    judge_error: str | None = Field(
+        default=None, description="Why the judge gave no verdict; None for a wrong verdict."
+    )
+
+
+NO_CALIBRATION_CASES: Final = CalibrationMiss(case_id="<no calibration cases>")
+
+
+def calibration_miss(case: CalibrationCase, verdict: JudgeVerdict | str) -> CalibrationMiss | None:
+    """None when the judge got the case right. A string verdict is the judge's failure reason;
+    an inconsistent verdict is a miss."""
+    if isinstance(verdict, str):
+        return CalibrationMiss(case_id=case.case_id, judge_error=verdict)
+    if not verdict.consistent or verdict.passed != case.expected_pass:
+        return CalibrationMiss(case_id=case.case_id)
+    return None

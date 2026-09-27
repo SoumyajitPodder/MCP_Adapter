@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
+from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import ValidationError
 
@@ -14,7 +15,7 @@ from adapter_kernel.pipeline import ToolFailure, ToolSuccess
 from adapter_verify.golden.adapters.gemini import GeminiAgent, GeminiJudge, idempotency_key
 from adapter_verify.golden.domain.judge import AnswerEvidence
 from adapter_verify.golden.domain.tasks import RunLimits
-from adapter_verify.golden.ports import ToolCall, ToolView
+from adapter_verify.golden.ports import JudgeUnavailableError, ToolCall, ToolView
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -43,7 +44,7 @@ def _call(name: str, call_id: str, **args: Any) -> types.Part:
 
 
 class FakeModels:
-    def __init__(self, responses: Sequence[types.GenerateContentResponse]) -> None:
+    def __init__(self, responses: Sequence[types.GenerateContentResponse | Exception]) -> None:
         self._responses = list(responses)
         self.requests: list[tuple[str, Any, types.GenerateContentConfig | None]] = []
 
@@ -57,7 +58,10 @@ class FakeModels:
         self.requests.append(
             (model, list(contents) if isinstance(contents, list) else contents, config)
         )
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class Tools:
@@ -168,6 +172,16 @@ async def test_judge_returns_a_validated_verdict() -> None:
     assert json.loads(contents)["rubric"] == "rubric"
     assert config is not None
     assert config.response_mime_type == "application/json"
+
+
+async def test_judge_reports_api_errors_by_code_and_status_only() -> None:
+    quota = genai_errors.ClientError(
+        429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "free text"}}
+    )
+    judge = GeminiJudge(FakeModels([quota]), model="m")
+    with pytest.raises(JudgeUnavailableError) as raised:
+        await judge.grade("r", AnswerEvidence(prompt="q", tool_results=(), answer="a"))
+    assert str(raised.value) == "429 RESOURCE_EXHAUSTED"
 
 
 @pytest.mark.parametrize("text", ["not json", '{"score": 2, "passed": true, "reasons": ["x"]}', ""])

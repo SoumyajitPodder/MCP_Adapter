@@ -7,6 +7,20 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-26 — Session 19: first live Gemini run; judge errors reported
+
+The first live run found two harness bugs, fixed in `85abfae`:
+- The egress tripwire blocked the allowed Gemini host: anyio resolves IDNA-encoded bytes, which didn't match the allowed names.
+- The composition root returned `client.aio.models` and dropped the `Client`. A collected `Client` closes its HTTP pool, so later calls failed. `ClientModels` now holds the client.
+
+Live results so far: `golden calibrate` passed once (7/7). Every later call hit the free-tier daily limit: 20 requests per model per day for `gemini-3.8-flash`. One suite run needs about 22 judge calls (7 calibration + 15 runs), so on the free tier one full cycle doesn't fit into a single day. Token counts and the suite budget are still to be measured.
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-090 | A judge that gives no verdict is reported with a short reason: `ERROR <case> <reason>` in `golden calibrate`, and `judge failed: <reason>` in a run's `judge_error` detail. The Gemini judge reports API errors as HTTP code and status only (e.g. `429 RESOURCE_EXHAUSTED`); other exceptions give the safe summary (type and frames, no message). Calibration stops at the first judge failure. | A quota failure was shown as `MISSED`, which looks like a wrong verdict. Stopping early saves quota, since later cases fail the same way. Rejected: the API message text (free text, could carry request data). | pending |
+
+---
+
 ## 2026-09-26 — Session 18: M5b (Gemini agent and judge, canaries) implemented
 
 | ID | Decision | Status |
