@@ -85,29 +85,43 @@ h1,h2,h3,h4,p{margin:0}
 .confrow span{flex:0 0 118px}
 .confrow b{flex:0 0 34px;text-align:right;color:var(--ink)}
 
-/* workspace: toggleable sidebar + tabbed workarea */
-.workspace{display:flex;gap:14px;align-items:flex-start;position:relative}
+/* app shell: a true full-height sidebar fixed to the viewport, with the
+   rest of the page offset to make room for it. This is deliberate — a
+   sidebar that only spans as tall as the content next to it stops feeling
+   like a persistent control panel, and the pull tab needs a fixed
+   viewport position of its own so it never collides with in-flow content
+   like the tab bar. */
 .sidebar{
-  flex:0 0 var(--sidebar-w);width:var(--sidebar-w);
-  display:flex;flex-direction:column;gap:14px;min-width:0;overflow:hidden;
-  transition:flex-basis .22s ease, width .22s ease, opacity .18s ease, margin .22s ease;
+  position:fixed;top:0;left:0;height:100vh;width:var(--sidebar-w);
+  background:var(--surface);border-right:1px solid var(--line);
+  z-index:10;overflow:hidden;
+  transition:transform .22s ease;
 }
-.workspace.collapsed{gap:0}
-.workspace.collapsed .sidebar{flex-basis:0;width:0;opacity:0;pointer-events:none}
-.workarea{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
+.sidebar-scroll{
+  height:100%;overflow-y:auto;display:flex;flex-direction:column;gap:14px;
+  padding:calc(16px + env(safe-area-inset-top,0px)) 14px calc(16px + env(safe-area-inset-bottom,0px));
+}
+body.sidebar-collapsed .sidebar{transform:translateX(-100%)}
 
-/* the drawer handle: docked to the sidebar's right edge when open, flush
-   to the far left when the sidebar is tucked away */
+.mainarea{margin-left:var(--sidebar-w);min-height:100vh;transition:margin-left .22s ease}
+body.sidebar-collapsed .mainarea{margin-left:0}
+
+.workarea{display:flex;flex-direction:column;gap:14px}
+
+/* the drawer handle: a fixed tab docked to the sidebar's edge, vertically
+   centered on whatever's currently in view rather than a fixed distance
+   from the top of the page, so it can never land on top of page content. */
 .sidebar-pull{
-  position:absolute;top:14px;left:calc(var(--sidebar-w) - 11px);z-index:5;
-  width:22px;height:40px;display:flex;align-items:center;justify-content:center;
-  border:1px solid var(--line);border-left:none;border-radius:0 8px 8px 0;
-  background:var(--surface);color:var(--ink-2);cursor:pointer;
-  transition:left .22s ease;
+  position:fixed;top:50%;left:var(--sidebar-w);transform:translate(-50%,-50%);z-index:11;
+  width:26px;height:52px;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-left:none;border-radius:0 10px 10px 0;
+  background:var(--surface);color:var(--ink-2);cursor:pointer;font-weight:700;
+  box-shadow:2px 0 8px rgba(0,0,0,.08);
+  transition:left .22s ease, background .15s ease, color .15s ease, box-shadow .15s ease;
 }
-.sidebar-pull:hover{color:var(--ink);background:var(--surface-2)}
-.workspace.collapsed .sidebar-pull{left:0}
-.sidebar-pull span{font-size:15px;line-height:1;pointer-events:none}
+.sidebar-pull:hover{color:var(--accent-ink);background:var(--accent);box-shadow:2px 0 12px rgba(0,0,0,.18)}
+body.sidebar-collapsed .sidebar-pull{left:0;transform:translate(0,-50%)}
+.sidebar-pull span{font-size:17px;line-height:1;pointer-events:none}
 
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
 .card > h2{font-size:15px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -231,13 +245,11 @@ pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-rad
 .empty{color:var(--ink-2);padding:6px 0}
 
 @media (max-width:1180px){
-  .sidebar{flex:0 0 260px}
+  :root{--sidebar-w:260px}
 }
 @media (max-width:900px){
-  .workspace{flex-direction:column}
-  .sidebar-pull{position:static;width:100%;height:34px;border:1px solid var(--line);border-radius:8px}
-  .sidebar{flex:1 1 auto;width:100%;opacity:1}
-  .workspace.collapsed .sidebar{display:none;width:auto;flex-basis:auto}
+  :root{--sidebar-w:280px}
+  .mainarea{margin-left:0}
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
   .path{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}

@@ -339,8 +339,7 @@ function renderTabBar() {
 }
 
 function renderSidebarToggle() {
-  const ws = $('#workspace');
-  if (ws) ws.classList.toggle('collapsed', !state.sidebarOpen);
+  document.body.classList.toggle('sidebar-collapsed', !state.sidebarOpen);
   const arrow = $('#pullArrow');
   if (arrow) arrow.textContent = state.sidebarOpen ? '‹' : '›';
   const pull = $('#sidebarPull');
