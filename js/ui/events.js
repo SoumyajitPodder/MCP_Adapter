@@ -1,7 +1,13 @@
 // Wires DOM events (button clicks, the review dropdowns, the speed
+<<<<<<< HEAD
 // control, the audit search) to the core actions and the simulator, then
 // re-renders. This is the only file that listens on the document;
 // render.js only ever produces markup.
+=======
+// control) to the core actions and the simulator, then re-renders. This is
+// the only file that listens on the document; render.js only ever
+// produces markup.
+>>>>>>> 65080c04c350f0163a71689589d5137d010e7105
 
 import { $ } from './dom.js';
 import { state } from '../state.js';
@@ -11,7 +17,11 @@ import {
   promote, retire, deprecateContract, approve, reject, injectCanaryFault,
   activateScenario
 } from '../core/lifecycle.js';
+<<<<<<< HEAD
 import { render, animate, renderClock, renderAuditTab } from './render.js';
+=======
+import { render, animate, renderClock } from './render.js';
+>>>>>>> 65080c04c350f0163a71689589d5137d010e7105
 
 let autoTimer = null;
 
@@ -104,6 +114,7 @@ export function bindEvents({ onReset }) {
       if (autoTimer) startAuto(); // restart at the new pace
       renderClock();
     }
+<<<<<<< HEAD
     if (t.id === 'auditActor') { state.auditQuery.actor = t.value; renderAuditTab(); }
     if (t.id === 'auditGroup') { state.auditQuery.group = t.value; renderAuditTab(); }
   });
@@ -115,5 +126,7 @@ export function bindEvents({ onReset }) {
       state.auditQuery.text = e.target.value;
       renderAuditTab();
     }
+=======
+>>>>>>> 65080c04c350f0163a71689589d5137d010e7105
   });
 }

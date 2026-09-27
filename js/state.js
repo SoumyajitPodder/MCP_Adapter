@@ -29,12 +29,16 @@ export function resetState() {
     batchHistory: [],
     selBatch: null,
     clockMinutes: 0,
+<<<<<<< HEAD
     speed: 1,
     mainTab: 'pipeline',
     sidebarOpen: true,
     scenarioQueue: [],
     activeScenarios: [],
     auditQuery: { text: '', actor: 'all', group: 'all' }
+=======
+    speed: 1
+>>>>>>> 65080c04c350f0163a71689589d5137d010e7105
   };
 }
 

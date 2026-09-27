@@ -318,7 +318,10 @@ function fireScenarioSteps() {
 // "batch run overview").
 export function runBatch(advance) {
   if (advance) { state.day++; state.clockMinutes = 0; }
+<<<<<<< HEAD
   fireScenarioSteps();
+=======
+>>>>>>> 65080c04c350f0163a71689589d5137d010e7105
   Object.entries(CONTRACTS).forEach(([t, c]) => {
     if (c.state === 'DEPRECATED' && c.sunsetDay != null && state.day >= c.sunsetDay) {
       c.state = 'SUNSET';

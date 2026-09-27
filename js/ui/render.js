@@ -76,6 +76,27 @@ function renderStats() {
   ].map(([n, l]) => `<div class="stat"><b>${n}</b><small>${l}</small></div>`).join('');
 }
 
+<<<<<<< HEAD
+=======
+function renderBindings() {
+  $('#bcount').textContent = state.bindings.length + ' tools';
+  $('#bindings').innerHTML = state.bindings.map(b => {
+    const h = health(b), p = primary(b);
+    return `<button class="bnd ${b.id === state.sel ? 'sel' : ''}" data-act="sel" data-arg="${b.id}">
+      <div class="r1"><span class="nm">${b.tool}</span><span class="pill ${h}">${h}</span></div>
+      <div class="r2">${b.kind} from ${b.system}<br>serving ${short(p)} on upstream ${p.upstreamVersion}</div></button>`;
+  }).join('');
+}
+
+function renderSim() {
+  const b = selB();
+  $('#sim').innerHTML = `<p class="tiny" style="margin-bottom:8px">Changes apply to <b>${b.tool}</b> (${b.kind}). Inject one, then run a batch.</p><div class="sim-grid">` +
+    INJ.filter(i => i.kinds.includes(b.kind)).map(i =>
+      `<button class="btn sm ${i.custom ? 'warnish' : ''}" data-act="inject" data-arg="${i.id}" ${i.custom && b.upstream.sunsetDay != null ? 'disabled' : ''}>${i.label}</button>`
+    ).join('') + `</div>`;
+}
+
+>>>>>>> 65080c04c350f0163a71689589d5137d010e7105
 const READINESS_LABEL = {
   PASS: ['✓', 'READY'], REVIEW: ['⚠', 'REVIEW'], FAIL: ['✕', 'BLOCKED'],
   SUNSET: ['•', 'SUNSET'], PENDING: ['·', 'PENDING']

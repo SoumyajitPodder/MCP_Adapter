@@ -209,9 +209,17 @@ export function inject(b, id) {
   if (!inj) return;
   if (inj.custom) {
     inj.apply(b);
+<<<<<<< HEAD
     log(b, 'SYSTEM', 'simulated: ' + (inj.customLog || inj.label.toLowerCase()), 'sim', { actor: 'simulator', action: 'SIMULATION' });
     return;
   }
   inj.apply(b, targetShape(b));
   log(b, 'SYSTEM', 'simulated: ' + inj.label.toLowerCase() + (inj.note ? ` — ${inj.note}` : ''), 'sim', { actor: 'simulator', action: 'SIMULATION' });
+=======
+    log(b, 'SYSTEM', 'simulated: ' + (inj.customLog || inj.label.toLowerCase()), 'sim');
+    return;
+  }
+  inj.apply(b, targetShape(b));
+  log(b, 'SYSTEM', 'simulated: ' + inj.label.toLowerCase() + (inj.note ? ` — ${inj.note}` : ''), 'sim');
+>>>>>>> 65080c04c350f0163a71689589d5137d010e7105
 }
