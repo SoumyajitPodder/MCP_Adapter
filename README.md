@@ -1,136 +1,373 @@
 # Lifecycle Controller Prototype
 
-Phase 1 prototype for the MCP adapter project. Simulates three tool
-bindings (order.get, service.get, inventory.snapshot) with fake upstreams,
-and runs the actual detect -> classify -> absorb / review / block logic
-against them, so you can inject a real drift scenario and watch the
-adapter pipeline react to it instead of looking at a mocked-up UI.
+A Phase 1 prototype for the MCP adapter project.
 
-This is a prototype, not a production build. No backend, no build step,
-no dependencies. It's plain HTML, CSS, and JS modules that run directly in
-the browser.
+The prototype simulates three tool bindings:
 
-## How to run it
+* `order.get`
+* `service.get`
+* `inventory.snapshot`
 
-Open `index.html` in a browser.
+Each binding connects to a fake upstream system. You can introduce different kinds of upstream changes and watch the actual drift-detection pipeline respond in real time.
 
-Because it uses ES module imports (`<script type="module">`), some
-browsers block module loading over the `file://` protocol. If double
-clicking the file gives you a blank page or console errors about CORS or
-modules, serve the folder instead:
+This isn't a mockup or a collection of pre-recorded UI states. The prototype runs the actual detection, classification, remediation, validation, review, and adapter lifecycle logic.
 
-```
+> **Note:** This is a prototype, not a production system. There is no backend, build process, or external dependency. Everything runs directly in the browser using HTML, CSS, and JavaScript modules.
+
+## Getting Started
+
+### 1. Open the prototype
+
+The simplest option is to open `index.html` in your browser.
+
+However, because the prototype uses JavaScript ES modules, some browsers won't allow the modules to load correctly over `file://`.
+
+If you see a blank page or errors about CORS/modules, run a local server instead:
+
+```bash
+cd prototype
 python3 -m http.server 8000
 ```
 
-Then open `http://localhost:8000` in the browser.
+Then open:
 
-## What it does
-
-- Three bindings, each with a primary adapter already serving a
-  "healthy" upstream.
-- Buttons to inject drift into whichever binding is selected: rename a
-  field, add an enum value, flip a date format, remove a required column,
-  reorder file columns, change a delimiter, or announce a version sunset.
-- Run a batch (or step day by day, or hit auto-run) to trigger the
-  six-stage sanity pipeline against every active adapter: version check,
-  schema comparison, adapter compatibility, smoke test, canonical
-  validation, readiness.
-- Ambiguous drift (a probable rename, a new enum value, a date format
-  change) opens a review card with a proposed mapping, a sandbox replay
-  result, and a shadow comparison against last-known-good output. You
-  pick what an unknown value means and approve or reject.
-- Breaking drift or an announced sunset lets you stand up a new adapter
-  version, which goes through tested -> canary -> primary before it
-  takes over, same as a real rollout would.
-- "Call tool now" runs the same detect/classify logic on the runtime
-  path and fails closed if it can't produce a safe answer, instead of
-  guessing.
-- A log of every drift event and lifecycle transition, and a
-  `window.__core` object in devtools for driving the whole thing from the
-  console instead of clicking buttons.
-
-Everything above matches the Phase 1 LLD (canonical contract, stable
-translation, API/file drift adapters, lifecycle controller). Write-path
-tools, the queue adapter, and an LLM-based mapping proposer are
-deliberately not in this prototype, same as the LLD scopes them out for
-now.
-
-## Folder layout
-
+```text
+http://localhost:8000
 ```
+
+## What can you do with it?
+
+### Simulate upstream drift
+
+Select a binding and introduce different types of changes, including:
+
+* Renaming a field
+* Adding an enum value
+* Changing a date format
+* Removing a required field
+* Reordering file columns
+* Changing a file delimiter
+* Announcing an API version sunset
+* Forcing an unexpected version cutover
+* Introducing a silent breaking change
+
+The goal is to see how the system reacts to each type of change rather than simply displaying a pre-built result.
+
+### Watch the drift pipeline
+
+Running a batch checks every active adapter through six stages:
+
+1. **Version check**
+2. **Schema comparison**
+3. **Adapter compatibility**
+4. **Smoke test**
+5. **Canonical validation**
+6. **Readiness**
+
+Each binding ends up in one of three states:
+
+* **READY** — everything looks good
+* **REVIEW** — something changed and needs a decision
+* **BLOCKED** — the system cannot safely continue
+
+You can run batches manually, move forward one day at a time, or turn on **Auto** to let the simulated clock run continuously.
+
+The speed can be adjusted from `0.5×` to `4×`, which makes it easy to either walk through a scenario slowly or fast-forward through several days.
+
+## Seeing what happened
+
+Every batch run is saved.
+
+After running a batch, you can see:
+
+* Which bindings were checked
+* Which upstreams were checked
+* The result for each binding
+* The batch number
+* Previous batch runs
+
+You can also click back through previous runs to see how the system reached its current state.
+
+The prototype also keeps a log of drift events and adapter lifecycle changes.
+
+For debugging or demonstrations, the entire prototype can also be controlled from the browser console through:
+
+```js
+window.__core
+```
+
+## How drift is handled
+
+Not every change needs a human.
+
+### Safe changes
+
+Changes that can be handled deterministically are absorbed automatically.
+
+For example, if an upstream renames a field and the system can confidently determine the mapping, the adapter can translate the new field back into the canonical format.
+
+### Ambiguous changes
+
+Some changes aren't safe to guess.
+
+For example:
+
+* A probable field rename
+* A new enum value
+* A date format change
+
+These open a review card containing:
+
+* The proposed mapping
+* A sandbox replay
+* A shadow comparison against the last-known-good result
+* The information needed to approve or reject the change
+
+For field renames, the prototype also shows how the confidence score was calculated:
+
+* **Name similarity:** `0.5`
+* **Type compatibility:** `0.2`
+* **Value shape:** `0.3`
+
+This makes the classification explainable instead of showing only a final score.
+
+### Breaking changes
+
+If the system can't safely map a change, it blocks the affected path instead of guessing.
+
+For breaking changes or announced API sunsets, a new adapter version can be created and moved through:
+
+```text
+tested → canary → primary
+```
+
+The existing primary adapter stays untouched until the new version has passed the required checks.
+
+## The rollback demo
+
+The prototype can also demonstrate what happens when a new adapter looks good initially but fails later.
+
+Try this:
+
+1. Select `order.get`.
+2. Click **"Announce v2 sunset in 6 days, release v3."**
+3. Click **Next day**.
+4. Click **"Stand up adapter for v3."**
+5. Promote the new adapter to **canary**.
+6. Click **Next day** to run a clean canary check.
+7. Click **"Simulate canary failure."**
+8. Click **Next day** again.
+
+The next run introduces a correctness bug that wasn't caught during the initial sandbox check.
+
+The canonical validation stage fails, showing the before/after difference, and the system automatically rolls the adapter back.
+
+The resulting lifecycle is:
+
+```text
+primary
+   ↓
+candidate
+   ↓
+canary
+   ↓
+failure
+   ↓
+rollback
+   ↓
+previous primary
+```
+
+The important part is that the original primary adapter was never replaced or demoted.
+
+You can also click **Call tool now** during or after the failure to verify that the original adapter is still serving requests.
+
+## The silent breaking change
+
+There is one scenario that intentionally produces **no alert**.
+
+Select any binding and choose:
+
+> **Silent breaking change (new records, meaning swapped)**
+
+Then click **Next day**.
+
+The batch will still report **READY**.
+
+That's intentional.
+
+The simulated upstream returns data that is still perfectly valid according to the schema. The problem is that the values now mean something different.
+
+For example, a value can still be a valid string or enum while representing the wrong business meaning.
+
+This demonstrates an important limitation of structural drift detection:
+
+> Schema and type checks can tell us that data is well-formed. They cannot always tell us that the data still means the same thing.
+
+You can also see this by calling the tool directly:
+
+```js
+const b = window.__core.getState().bindings[0];
+window.__core.liveCall(b);
+```
+
+The response is schema-valid, even though the underlying meaning has changed.
+
+This is intentionally left as a limitation for Phase 1 and is one of the reasons the later design calls for value-level checks in addition to structural checks.
+
+## What is included
+
+The prototype currently covers the main Phase 1 flow:
+
+* Canonical tool contracts
+* Stable output translation
+* API drift detection
+* File drift detection
+* Drift classification
+* Automatic absorption of known-safe changes
+* Human review for ambiguous changes
+* Sandbox replay
+* Shadow comparison
+* Canonical validation
+* Adapter lifecycle management
+* Canary testing
+* Automatic rollback
+* Batch processing
+* Runtime fail-closed behavior
+* Drift and lifecycle logging
+* Browser-console access through `window.__core`
+
+The following are intentionally **out of scope for this prototype**:
+
+* Write-path tools
+* Queue adapters
+* An LLM-based mapping proposer
+* Real external APIs
+* Production infrastructure
+
+The idea is to demonstrate the core behavior without building the entire production system around it.
+
+## Project Structure
+
+```text
 prototype/
-├── index.html              page shell, loads css/js
+├── index.html
 ├── css/
 │   └── styles.css
+│
 ├── js/
-│   ├── app.js               composition root: builds bindings, wires
-│   │                         everything up, exposes window.__core
-│   ├── state.js              the one mutable state object, plus logging
+│   ├── app.js
+│   ├── state.js
+│   │
 │   ├── core/
-│   │   ├── utils.js          generic helpers (string similarity, date
-│   │   │                     formatting, etc), no dependencies
-│   │   ├── detector.js        detect stage: diffs a response against
-│   │   │                     the stored baseline
-│   │   ├── classifier.js      classify stage: turns detected diffs into
-│   │   │                     COMPATIBLE / REVIEW_REQUIRED / BREAKING /
-│   │   │                     UNKNOWN
-│   │   ├── validator.js       translate a mapping against records, check
-│   │   │                     the result against the canonical contract
-│   │   ├── adapters.js        adapter creation and baseline capture
-│   │   └── lifecycle.js       the six-stage pipeline, review workflow,
-│   │                         promotion/retirement, the live-call path
+│   │   ├── utils.js
+│   │   ├── detector.js
+│   │   ├── classifier.js
+│   │   ├── validator.js
+│   │   ├── adapters.js
+│   │   └── lifecycle.js
+│   │
 │   ├── simulation/
-│   │   └── upstreams.js       fake upstream data plus the drift
-│   │                         injection buttons
+│   │   └── upstreams.js
+│   │
 │   └── ui/
-│       ├── dom.js             two tiny DOM helpers
-│       ├── render.js           turns state into markup, no logic
-│       └── events.js           click/change handlers, calls into core/
+│       ├── dom.js
+│       ├── render.js
+│       └── events.js
+│
 └── data/
-    ├── contracts.js           the three canonical tool contracts
-    └── bindings.js            which tool maps to which fake upstream
+    ├── contracts.js
+    └── bindings.js
 ```
 
-Layout note: the task sketch had `core/adapters.js` but not a `ui/`
-folder. I split rendering (`render.js`) from event wiring (`events.js`)
-and added `dom.js` for the two shared DOM helpers, since keeping all of
-that in one file made it hard to tell "what draws the screen" apart from
-"what happens when you click something." I also pulled the handful of
-generic helpers (string similarity, date parsing, etc.) into
-`core/utils.js` rather than leaving them scattered at the top of the old
-single file, since several modules need them and none of them belong to
-any one module in particular.
+### What each part does
 
-## How the pieces depend on each other
+**`app.js`**
+Starts the prototype, wires the different layers together, and exposes `window.__core` for console access.
 
-`core/utils.js` has no dependencies. `state.js` depends only on `data/`
-and `core/utils.js`. Everything in `core/` and `simulation/` reads and
-writes through `state.js`, but nothing in `core/` touches the DOM —
-`detector.js`, `classifier.js`, and `validator.js` in particular are
-plain functions: given a binding, an adapter, and some data, they return
-a result. `ui/render.js` and `ui/events.js` are the only files that touch
-`document`. `app.js` is the only file that imports from every layer; it's
-the one place that wires the whole thing together and boots it.
+**`state.js`**
+Owns the prototype's mutable state and logging.
 
-That's also why the modules were testable on their own: before wiring up
-the UI, I ran the whole detect/classify/absorb/promote flow headlessly in
-Node, no browser needed, since none of that code depends on a DOM. That's
-the separation the task asked for, not just a style preference.
+**`core/`**
+Contains the actual lifecycle and drift logic.
 
-## What changed from the single-file version
+* `utils.js` — shared helper functions
+* `detector.js` — detects changes between upstream data and the stored baseline
+* `classifier.js` — determines whether a change is compatible, requires review, is breaking, or is unknown
+* `validator.js` — applies mappings and checks the result against the canonical contract
+* `adapters.js` — creates adapters and captures baselines
+* `lifecycle.js` — handles batches, reviews, promotion, retirement, rollback, and runtime calls
 
-Nothing functional. Every function in `core/` and `simulation/` is the
-same logic, moved into its file and given real imports/exports instead
-of living in one closure. The only actual changes:
+**`simulation/upstreams.js`**
+Contains the fake upstream systems and the controls used to inject drift.
 
-- Small helper functions (`clone`, `nameSim`, date formatting, etc.) were
-  pulled out into `core/utils.js` since they were previously just sitting
-  at the top of the file with everything else.
-- `primary()` (find a binding's current live adapter) lives in
-  `core/utils.js` instead of next to the other adapter functions, because
-  both `core/adapters.js` and `simulation/upstreams.js` need it, and
-  having them import each other would create a circular dependency.
-- The event handlers take a callback for the Reset button
-  (`bindEvents({ onReset })`) instead of calling the bootstrap function
-  directly, so `events.js` doesn't need to import `app.js`.
+**`ui/`**
+Handles the browser interface.
+
+* `render.js` — turns application state into HTML
+* `events.js` — handles user interactions
+* `dom.js` — small DOM helpers
+
+**`data/`**
+Defines the canonical contracts and the bindings between tools and simulated upstreams.
+
+## Architecture
+
+The prototype intentionally keeps the UI separate from the actual drift logic.
+
+At a high level:
+
+```text
+                  ┌─────────────────────┐
+                  │       Browser       │
+                  │     UI / Events     │
+                  └──────────┬──────────┘
+                             │
+                             ▼
+                  ┌─────────────────────┐
+                  │       Core          │
+                  │                     │
+                  │ Detect → Classify   │
+                  │   → Absorb/Review   │
+                  │   → Validate        │
+                  │   → Lifecycle       │
+                  └──────────┬──────────┘
+                             │
+                             ▼
+                  ┌─────────────────────┐
+                  │    Simulation       │
+                  │  Fake Upstreams     │
+                  └─────────────────────┘
+```
+
+The core logic does not directly manipulate the DOM.
+
+In particular, `detector.js`, `classifier.js`, and `validator.js` are plain functions. They take data in and return results.
+
+The UI layer is responsible for displaying those results.
+
+This separation keeps the prototype easy to reason about and makes the core behavior possible to exercise without going through the UI.
+
+## Dependency flow
+
+The dependency structure is intentionally simple:
+
+```text
+data
+  ↓
+state
+  ↓
+core / simulation
+  ↓
+app
+  ↓
+ui
+```
+
+`core/` and `simulation/` work through `state.js` rather than directly manipulating the browser.
+
+Only the UI layer interacts with `document`.
+
+`app.js` acts as the composition root: it is the one place that brings the different pieces together and starts the application.
+
+

@@ -53,25 +53,34 @@ export const SHAPES = {
    the upstream's current on-the-wire representation, so injecting drift
    only ever changes how truth is rendered, never the truth itself. */
 
-function truth(b, i, isNew) {
+function truth(b, i, isNew, isSilent) {
   return {
     i,
     key: b.prefix + (1000 + i),
     other: String(48000 + i * 7),
     created: new Date(Date.UTC(2026, 7, 1 + (i % 25), 6 + (i % 12), (i * 7) % 60, (i * 13) % 60)),
-    status: isNew ? b.newState.truth : CONTRACTS[b.tool].fields[1].values[i % 3]
+    status: isNew ? b.newState.truth : CONTRACTS[b.tool].fields[1].values[i % 3],
+    silent: !!isSilent
   };
 }
 
 function sampleTruths(b, shape, n) {
   const out = [];
-  const extra = b.newActive ? 2 : 0;
+  const extra = (b.newActive ? 2 : 0) + (b.silentActive ? 2 : 0);
   for (let i = 0; out.length < n - extra && i < 300; i++) {
-    const t = truth(b, i, false);
+    const t = truth(b, i, false, false);
     if (shape.enumMap[t.status] !== undefined) out.push(t);
   }
   if (b.newActive) {
-    [100, 101].forEach(i => { const t = truth(b, i, true); if (shape.enumMap[t.status] !== undefined) out.push(t); });
+    [100, 101].forEach(i => { const t = truth(b, i, true, false); if (shape.enumMap[t.status] !== undefined) out.push(t); });
+  }
+  if (b.silentActive) {
+    // Brand-new records the adapter has never seen before, so there is no
+    // last-known-good entry to catch them against. Their true status is a
+    // perfectly ordinary one, but the wire reports it using a different,
+    // already-known code — the silent-swap scenario, isolated to records
+    // with no history, which is what actually makes it undetectable.
+    [150, 151].forEach(i => { const t = truth(b, i, false, true); out.push(t); });
   }
   return out;
 }
@@ -79,7 +88,14 @@ function sampleTruths(b, shape, n) {
 function cell(b, shape, f, t) {
   const idx = b.canon.indexOf(f.canon);
   if (idx === 0) return t.key;
-  if (idx === 1) return shape.enumMap[t.status];
+  if (idx === 1) {
+    if (t.silent) {
+      const keys = Object.keys(shape.enumMap);
+      const swapped = keys.find(k => k !== t.status) || t.status;
+      return shape.enumMap[swapped];
+    }
+    return shape.enumMap[t.status];
+  }
   if (idx === 2) return f.vt === 'number' ? Number(t.other) : t.other;
   return fmtDate(t.created, shape.dateFormat);
 }
@@ -158,12 +174,34 @@ export const INJ = [
   { id: 'delimiter', label: 'Change the file delimiter', kinds: ['FILE'],
     apply: (b, s) => { s.delimiter = '|'; } },
   { id: 'sunset', label: 'Announce v2 sunset in 6 days, release v3', kinds: ['REST'], custom: true,
+    customLog: 'upstream announced sunset of v2 (6 days) and released v3',
     apply: (b) => {
       if (b.upstream.sunsetDay != null) return;
       b.upstream.sunsetDay = state.day + 6;
       b.upstream.versions.v3 = clone(SHAPES[b.tool].v3);
       b.pristine.v3 = clone(SHAPES[b.tool].v3);
-    } }
+    } },
+  // Distinct from the graceful sunset above: the vendor cuts the old
+  // endpoint over immediately, with no advance notice at all. The primary
+  // sees a 410 on its very next call, with no prior REVIEW-level warning —
+  // this exercises the unplanned/BREAKING path instead of the planned one.
+  { id: 'version_bump', label: 'API endpoint changed overnight (v2 gone, no warning)', kinds: ['REST'], custom: true,
+    customLog: 'upstream cut over to a new API version overnight — v2 is gone effective immediately, no warning header was ever shown',
+    apply: (b) => {
+      if (b.upstream.sunsetDay != null) return;
+      b.upstream.sunsetDay = state.day;
+      b.upstream.versions.v3 = clone(SHAPES[b.tool].v3);
+      b.pristine.v3 = clone(SHAPES[b.tool].v3);
+    } },
+  // The dangerous case the LLD calls out separately from ordinary drift:
+  // brand-new records report a perfectly ordinary status using an
+  // already-known code, just the wrong one. Nothing about the schema
+  // changes, no new code appears, and there is no last-known-good entry
+  // for these records to catch the mismatch against — this is the
+  // genuine blind spot, not just something the field classifier misses.
+  { id: 'silent_swap', label: 'Silent breaking change (new records, meaning swapped)', kinds: ['REST', 'FILE'],
+    note: 'brand-new records only, already-known codes — nothing in the pipeline flags this',
+    apply: (b) => { b.silentActive = true; } }
 ];
 
 export function inject(b, id) {
@@ -171,9 +209,9 @@ export function inject(b, id) {
   if (!inj) return;
   if (inj.custom) {
     inj.apply(b);
-    log(b, 'SYSTEM', 'simulated: upstream announced sunset of v2 and released v3', 'sim');
+    log(b, 'SYSTEM', 'simulated: ' + (inj.customLog || inj.label.toLowerCase()), 'sim', { actor: 'simulator', action: 'SIMULATION' });
     return;
   }
   inj.apply(b, targetShape(b));
-  log(b, 'SYSTEM', 'simulated: ' + inj.label.toLowerCase(), 'sim');
+  log(b, 'SYSTEM', 'simulated: ' + inj.label.toLowerCase() + (inj.note ? ` — ${inj.note}` : ''), 'sim', { actor: 'simulator', action: 'SIMULATION' });
 }

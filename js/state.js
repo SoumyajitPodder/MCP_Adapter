@@ -27,15 +27,30 @@ export function resetState() {
     calls: {},
     bindings: [],
     batchHistory: [],
-    selBatch: null
+    selBatch: null,
+    clockMinutes: 0,
+    speed: 1,
+    mainTab: 'pipeline',
+    sidebarOpen: true,
+    scenarioQueue: [],
+    activeScenarios: [],
+    auditQuery: { text: '', actor: 'all', group: 'all' }
   };
 }
 
-// Appends one line to the drift/lifecycle feed shown in the UI.
-export function log(b, cls, msg, src) {
+// Appends one line to the audit trail. `meta` carries the two fields that
+// make the trail queryable rather than just a scrollback: `actor` (who —
+// system, operator, reviewer, or simulator) and `action` (what — a fixed
+// category like ADAPTER_PROMOTED or REVIEW_APPROVED). Both default to
+// something reasonable if the caller doesn't specify them, so existing
+// call sites keep working; call sites that represent a real decision pass
+// them explicitly for an accurate trail.
+export function log(b, cls, msg, src, meta) {
   state.seq++;
-  state.log.unshift({ seq: state.seq, day: state.day, binding: b ? b.id : 'system', cls, msg, src: src || 'batch' });
-  if (state.log.length > 80) state.log.pop();
+  const actor = (meta && meta.actor) || 'system';
+  const action = (meta && meta.action) || cls;
+  state.log.unshift({ seq: state.seq, day: state.day, binding: b ? b.id : 'system', cls, msg, src: src || 'batch', actor, action });
+  if (state.log.length > 300) state.log.pop();
 }
 
 // Logs a single classified drift item once per adapter (de-duplicated by
@@ -46,5 +61,6 @@ export function logDrift(b, a, it, src) {
   a.seen[fp] = 1;
   if (it.tier === 'A') state.metrics.absorbed++;
   else if (SEV[it.cls] >= 2) state.metrics.blocked++;
-  log(b, it.cls, `${a.id.split('/')[1]}: ${it.event.type.toLowerCase().replace(/_/g, ' ')}, ${it.reason}`, src);
+  const action = it.cls === 'COMPATIBLE' ? 'DRIFT_ABSORBED' : (SEV[it.cls] >= 2 ? 'DRIFT_BLOCKED' : 'DRIFT_REVIEW');
+  log(b, it.cls, `${a.id.split('/')[1]}: ${it.event.type.toLowerCase().replace(/_/g, ' ')}, ${it.reason}`, src, { actor: 'system', action });
 }

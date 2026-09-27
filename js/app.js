@@ -12,7 +12,7 @@ import { makeAdapter, deriveMapping } from './core/adapters.js';
 import {
   runBatch, runPipeline, promote, retire, standUp, operatorMap,
   approve, reject, liveCall, health, deprecateContract,
-  withChoices, evalCandidate, injectCanaryFault
+  withChoices, evalCandidate, injectCanaryFault, activateScenario
 } from './core/lifecycle.js';
 import { render } from './ui/render.js';
 import { bindEvents } from './ui/events.js';
@@ -37,7 +37,7 @@ function initApp() {
     state.bindings.push(b);
   });
   runBatch(false);
-  log(null, 'SYSTEM', 'controller started; baselines captured for 3 bindings');
+  log(null, 'SYSTEM', 'controller started; baselines captured for 3 bindings', 'batch', { actor: 'system', action: 'SYSTEM_START' });
 }
 
 // Console interface for demoing or debugging the prototype from devtools,
@@ -51,7 +51,7 @@ window.__core = {
   CONTRACTS: () => CONTRACTS,
   runBatch, runPipeline, inject, approve, reject, standUp, operatorMap,
   promote, retire, liveCall, health, primary, withChoices, evalCandidate,
-  deprecateContract, injectCanaryFault
+  deprecateContract, injectCanaryFault, activateScenario
 };
 
 bindEvents({ onReset: initApp });

@@ -17,26 +17,72 @@
       <p>Phase 1 adapter health for API and file upstreams. Simulated upstreams, real drift logic.</p>
     </div>
     <div class="ctrls">
-      <div class="clock"><span>Day</span><b id="day">0</b></div>
+      <div class="clock">
+        <span>Day</span><b id="day">0</b>
+        <span class="sep">·</span>
+        <span>Time</span><b id="time">00:00</b>
+      </div>
       <button class="btn" data-act="run">Run batch</button>
       <button class="btn primary" data-act="next">Next day</button>
+      <select id="speedSel" class="speedsel" title="How fast simulated time passes in auto-run">
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
       <button class="btn" id="autoBtn" data-act="auto">Auto: off</button>
       <button class="btn" data-act="reset">Reset</button>
     </div>
   </header>
+
   <section class="stats" id="stats"></section>
   <section class="card batchcard" id="batchOverview"></section>
-  <main class="grid">
-    <aside class="col left">
+
+  <div class="workspace" id="workspace">
+    <button class="sidebar-pull" id="sidebarPull" data-act="togglesidebar" aria-label="Show or hide the sidebar" title="Show or hide the sidebar">
+      <span id="pullArrow">‹</span>
+    </button>
+    <aside class="sidebar" id="sidebar">
       <div class="card"><h2>Bindings <small id="bcount"></small></h2><div id="bindings"></div></div>
       <div class="card"><h2>Simulate an upstream change</h2><div id="sim"></div></div>
+      <div class="card"><h2>Scenarios <small>multi-day sequences</small></h2><div id="scenarios"></div></div>
     </aside>
-    <section class="col main" id="main"></section>
-    <aside class="col right">
-      <div class="card"><h2>Review queue <small id="rcount"></small></h2><div id="reviews"></div></div>
-      <div class="card"><h2>Drift and lifecycle log</h2><ul class="feed" id="feed"></ul></div>
-    </aside>
-  </main>
+
+    <section class="workarea">
+      <div class="tabbar">
+        <button class="mtab" id="mtab-pipeline" data-act="maintab" data-arg="pipeline">Pipeline</button>
+        <button class="mtab" id="mtab-reviews" data-act="maintab" data-arg="reviews">Reviews <span class="badge" id="reviewBadge" hidden></span></button>
+        <button class="mtab" id="mtab-mapping" data-act="maintab" data-arg="mapping">Mapping</button>
+        <button class="mtab" id="mtab-audit" data-act="maintab" data-arg="audit">Audit Log</button>
+      </div>
+
+      <div class="tabpanel" id="tabPipeline"></div>
+      <div class="tabpanel" id="tabReviews" hidden></div>
+      <div class="tabpanel" id="tabMapping" hidden></div>
+      <div class="tabpanel" id="tabAudit" hidden>
+        <div class="card">
+          <h2>Audit trail <small id="auditCount"></small></h2>
+          <div class="auditbar">
+            <input type="text" id="auditSearch" placeholder="Search actor, action, binding, or detail…">
+            <select id="auditActor">
+              <option value="all">All actors</option>
+              <option value="system">System</option>
+              <option value="operator">Operator</option>
+              <option value="reviewer">Reviewer</option>
+              <option value="simulator">Simulator</option>
+            </select>
+            <select id="auditGroup"><option value="all">All actions</option></select>
+          </div>
+          <div class="tablewrap">
+            <table class="audittable">
+              <thead><tr><th>Day</th><th>Actor</th><th>Action</th><th>Binding</th><th>Detail</th></tr></thead>
+              <tbody id="auditRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
 </div>
 <script type="module" src="js/app.js"></script>
 </body>

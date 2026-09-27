@@ -6,12 +6,13 @@
 // in the Phase 1 LLD.
 
 import { state, CONTRACTS, log, logDrift } from '../state.js';
-import { fetchUpstream } from '../simulation/upstreams.js';
+import { fetchUpstream, inject } from '../simulation/upstreams.js';
 import { analyzeRaw, recordsFor, detect } from './detector.js';
 import { scoreCandidate, classify } from './classifier.js';
 import { translate, validateCanon, compareLKG } from './validator.js';
 import { makeAdapter, rebaseline, deriveMapping, contractEnum } from './adapters.js';
 import { primary, clone, SEV, pathsOf, stripPrefix, nameSim, inferFmt } from './utils.js';
+import { SCENARIOS } from '../../data/scenarios.js';
 
 /* ---- propose a fix for drift on a live adapter ----
    Folds every absorbable (Tier A) change into the candidate mapping too,
@@ -77,16 +78,16 @@ export function proposeVersion(b, oldMapping, s) {
   const paths = Object.keys(pathsOf(records));
   const pairs = [];
   oldMapping.fields.forEach(f => paths.forEach(p => pairs.push({ f, p, sc: scoreCandidate(f, p, records) })));
-  pairs.sort((x, y) => y.sc - x.sc);
+  pairs.sort((x, y) => y.sc.score - x.sc.score);
   const pickF = new Map(), usedP = new Set();
-  pairs.forEach(x => { if (pickF.has(x.f.target) || usedP.has(x.p)) return; if (x.sc >= 0.6) { pickF.set(x.f.target, x); usedP.add(x.p); } });
+  pairs.forEach(x => { if (pickF.has(x.f.target) || usedP.has(x.p)) return; if (x.sc.score >= 0.6) { pickF.set(x.f.target, x); usedP.add(x.p); } });
   const m = clone(oldMapping); m.version = 1; m.unwrap = unwrap; m.coerce = false;
   const notes = [], unresolved = [];
   if (unwrap) notes.push(`unwrap envelope "${unwrap}"`);
   m.fields.forEach(f => {
     const pick = pickF.get(f.target);
-    if (!pick) { const best = pairs.filter(x => x.f.target === f.target)[0]; unresolved.push(`${f.target}: no confident source (best guess "${best ? best.p : 'none'}" scored ${best ? best.sc : 0})`); return; }
-    notes.push(`${f.target}: "${f.src}" → "${pick.p}" (confidence ${pick.sc})`); f.src = pick.p;
+    if (!pick) { const best = pairs.filter(x => x.f.target === f.target)[0]; unresolved.push(`${f.target}: no confident source (best guess "${best ? best.p : 'none'}" scored ${best ? best.sc.score : 0})`); return; }
+    notes.push(`${f.target}: "${f.src}" → "${pick.p}" (confidence ${pick.sc.score})`); f.src = pick.p;
     if (f.transform === 'datetime') { const fm = inferFmt(records[0][f.src]); f.format = fm; notes.push(`${f.target}: datetime format ${fm}`); }
     if (f.transform === 'enum') {
       const opts = contractEnum(b, f.target);
@@ -128,11 +129,12 @@ export function assess(b, a, src) {
       review = {
         id: 'R' + (state.reviews.length + 1), bindingId: b.id, adapterId: a.id, sig, day: state.day, status: 'open',
         events: cls.items.filter(i => SEV[i.cls] >= 1 && !i.sunset).map(i => i.reason),
+        renames: ri.filter(i => i.rename).map(i => i.rename),
         candidate: P.mapping, changes: P.changes, choices: P.choices, conf: P.conf, src
       };
       review.eval = evalCandidate(b, a, withChoices(review));
       state.reviews.unshift(review); state.metrics.reviews++;
-      log(b, 'REVIEW_REQUIRED', `review ${review.id} opened with a candidate mapping (sandbox ${review.eval.sandbox.valid}/${review.eval.sandbox.total})`, src);
+      log(b, 'REVIEW_REQUIRED', `review ${review.id} opened with a candidate mapping (sandbox ${review.eval.sandbox.valid}/${review.eval.sandbox.total})`, src, { actor: 'system', action: 'REVIEW_OPENED' });
     }
   }
   return { s, det, cls, review };
@@ -157,7 +159,7 @@ function applyCanaryFault(b, t) {
 export function injectCanaryFault(b, a) {
   if (a.state !== 'canary' || a.fault) return;
   a.fault = true;
-  log(b, 'SYSTEM', `simulated: injected a correctness bug into ${a.id.split('/')[1]} (canary) — will surface on the next run`, 'sim');
+  log(b, 'SYSTEM', `simulated: injected a correctness bug into ${a.id.split('/')[1]} (canary) — will surface on the next run`, 'sim', { actor: 'simulator', action: 'SIMULATION' });
 }
 
 // Upstream versions nobody has an active (tested/canary/primary) adapter
@@ -265,7 +267,7 @@ export function runPipeline(b, a, src = 'batch') {
     // canary stage.
     a.state = 'rolled_back';
     const p = primary(b);
-    log(b, 'BREAKING', `${a.id.split('/')[1]} failed in canary and was rolled back automatically; ${p ? p.id.split('/')[1] + ' remains primary, unaffected' : 'no primary is currently serving'}`);
+    log(b, 'BREAKING', `${a.id.split('/')[1]} failed in canary and was rolled back automatically; ${p ? p.id.split('/')[1] + ' remains primary, unaffected' : 'no primary is currently serving'}`, 'batch', { actor: 'system', action: 'ADAPTER_ROLLED_BACK' });
   }
   return run;
 }
@@ -277,15 +279,50 @@ export function health(b) {
   return p && p.lastRun ? p.lastRun.readiness : 'PENDING';
 }
 
-// The daily proactive run: sunset any contract whose window has elapsed,
-// then run the sanity pipeline against every non-frozen adapter, and
-// record a one-line-per-binding summary (the "batch run overview").
+// Activates a preselected scenario: queues each of its upstream events at
+// (activation day + offset). Firing itself happens inside runBatch, so
+// events land on schedule whether the day is advanced manually or by
+// auto-run. A scenario already running is left alone rather than
+// re-queued on top of itself.
+export function activateScenario(scenarioId) {
+  const sc = SCENARIOS.find(x => x.id === scenarioId);
+  if (!sc || state.activeScenarios.includes(scenarioId)) return;
+  state.activeScenarios.push(scenarioId);
+  sc.steps.forEach(step => {
+    state.scenarioQueue.push({
+      day: state.day + step.offset, bindingId: sc.bindingId, injectId: step.injectId,
+      note: step.note, scenarioId, scenarioName: sc.name
+    });
+  });
+  log(null, 'SYSTEM', `scenario "${sc.name}" activated on ${sc.bindingId} — ${sc.steps.length} event${sc.steps.length === 1 ? '' : 's'} queued`, 'sim', { actor: 'simulator', action: 'SIMULATION' });
+}
+
+// Fires any scenario steps whose day has arrived, then drops finished
+// scenarios from the active list so they could be run again later.
+function fireScenarioSteps() {
+  const due = state.scenarioQueue.filter(s => s.day <= state.day);
+  if (!due.length) return;
+  state.scenarioQueue = state.scenarioQueue.filter(s => s.day > state.day);
+  due.forEach(s => {
+    const b = state.bindings.find(x => x.id === s.bindingId);
+    if (b) inject(b, s.injectId);
+    if (!state.scenarioQueue.some(q => q.scenarioId === s.scenarioId)) {
+      state.activeScenarios = state.activeScenarios.filter(id => id !== s.scenarioId);
+    }
+  });
+}
+
+// The daily proactive run: fire any due scenario events, sunset any
+// contract whose window has elapsed, then run the sanity pipeline against
+// every non-frozen adapter, and record a one-line-per-binding summary (the
+// "batch run overview").
 export function runBatch(advance) {
-  if (advance) state.day++;
+  if (advance) { state.day++; state.clockMinutes = 0; }
+  fireScenarioSteps();
   Object.entries(CONTRACTS).forEach(([t, c]) => {
     if (c.state === 'DEPRECATED' && c.sunsetDay != null && state.day >= c.sunsetDay) {
       c.state = 'SUNSET';
-      log(null, 'SYSTEM', `contract ${t}@${c.version} reached SUNSET; tool is no longer served`);
+      log(null, 'SYSTEM', `contract ${t}@${c.version} reached SUNSET; tool is no longer served`, 'batch', { actor: 'system', action: 'CONTRACT_SUNSET' });
     }
   });
   const results = [];
@@ -333,30 +370,30 @@ export function promote(b, a) {
   if (a.state === 'tested') {
     if (!a.lastRun || a.lastRun.readiness !== 'PASS') return;
     a.state = 'canary'; a.canaryPass = 0;
-    log(b, 'PASS', `${a.id.split('/')[1]} promoted tested → canary`);
+    log(b, 'PASS', `${a.id.split('/')[1]} promoted tested → canary`, 'batch', { actor: 'operator', action: 'ADAPTER_PROMOTED' });
   } else if (a.state === 'canary') {
     if (!a.lastRun || a.lastRun.readiness !== 'PASS' || a.canaryPass < 1) return;
     const old = primary(b);
-    if (old) { old.state = 'deprecated'; log(b, 'REVIEW_REQUIRED', `${old.id.split('/')[1]} moved primary → deprecated`); }
+    if (old) { old.state = 'deprecated'; log(b, 'REVIEW_REQUIRED', `${old.id.split('/')[1]} moved primary → deprecated`, 'batch', { actor: 'operator', action: 'ADAPTER_DEPRECATED' }); }
     a.state = 'primary';
-    log(b, 'PASS', `${a.id.split('/')[1]} promoted canary → primary`);
+    log(b, 'PASS', `${a.id.split('/')[1]} promoted canary → primary`, 'batch', { actor: 'operator', action: 'ADAPTER_PROMOTED' });
   }
 }
 
 export function retire(b, a) {
-  if (a.state === 'deprecated') { a.state = 'retired'; log(b, 'SYSTEM', `${a.id.split('/')[1]} retired`); }
+  if (a.state === 'deprecated') { a.state = 'retired'; log(b, 'SYSTEM', `${a.id.split('/')[1]} retired`, 'batch', { actor: 'operator', action: 'ADAPTER_RETIRED' }); }
 }
 
 // Breaking-drift / migration path: builds a proposed mapping for the new
 // upstream version and stands up a new adapter in "tested" if it's confident.
 export function standUp(b, ver) {
   const s = fetchUpstream(b, ver, 8);
-  if (s.status !== 200) { log(b, 'BREAKING', `cannot stand up adapter for ${ver}: HTTP ${s.status}`); return; }
+  if (s.status !== 200) { log(b, 'BREAKING', `cannot stand up adapter for ${ver}: HTTP ${s.status}`, 'batch', { actor: 'operator', action: 'ADAPTER_STANDUP_FAILED' }); return; }
   const P = proposeVersion(b, primary(b).mapping, s);
-  if (!P.ok) { b.proposalFailed = { ver, unresolved: P.unresolved }; log(b, 'BREAKING', `no automatic mapping for ${ver}: ${P.unresolved.length} unresolved field${P.unresolved.length === 1 ? '' : 's'}; operator must author it`); return; }
+  if (!P.ok) { b.proposalFailed = { ver, unresolved: P.unresolved }; log(b, 'BREAKING', `no automatic mapping for ${ver}: ${P.unresolved.length} unresolved field${P.unresolved.length === 1 ? '' : 's'}; operator must author it`, 'batch', { actor: 'operator', action: 'ADAPTER_STANDUP_FAILED' }); return; }
   const a = makeAdapter(b, ver, P.mapping, 'tested', 'proposed automatically');
   b.adapters.push(a); b.proposalFailed = null; state.selAdapter = a.id;
-  log(b, 'PASS', `adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state (${P.notes.length} mapping decisions)`);
+  log(b, 'PASS', `adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state (${P.notes.length} mapping decisions)`, 'batch', { actor: 'operator', action: 'ADAPTER_STOOD_UP' });
   runPipeline(b, a);
 }
 
@@ -366,7 +403,7 @@ export function operatorMap(b, ver) {
   const m = deriveMapping(b, b.upstream.versions[ver]);
   const a = makeAdapter(b, ver, m, 'tested', 'operator authored');
   b.adapters.push(a); b.proposalFailed = null; state.selAdapter = a.id;
-  log(b, 'PASS', `operator-authored adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state`);
+  log(b, 'PASS', `operator-authored adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state`, 'batch', { actor: 'operator', action: 'ADAPTER_STOOD_UP' });
   runPipeline(b, a);
 }
 
@@ -381,19 +418,19 @@ export function approve(rv) {
   if (ev.sandbox.valid !== ev.sandbox.total || ev.shadow.diffs.length) return;
   cand.version = a.mapping.version + 1; a.mapping = cand;
   rebaseline(b, a); rv.status = 'approved'; state.metrics.approved++;
-  log(b, 'PASS', `review ${rv.id} approved; mapping registry now holds ${a.id.split('/')[1]} mapping v${cand.version}`);
+  log(b, 'PASS', `review ${rv.id} approved; mapping registry now holds ${a.id.split('/')[1]} mapping v${cand.version}`, 'batch', { actor: 'reviewer', action: 'REVIEW_APPROVED' });
   runPipeline(b, a);
 }
 
 export function reject(rv) {
   if (rv.status !== 'open') return;
   rv.status = 'rejected';
-  log(state.bindings.find(x => x.id === rv.bindingId), 'BREAKING', `review ${rv.id} rejected`);
+  log(state.bindings.find(x => x.id === rv.bindingId), 'BREAKING', `review ${rv.id} rejected`, 'batch', { actor: 'reviewer', action: 'REVIEW_REJECTED' });
 }
 
 export function deprecateContract(tool) {
   const c = CONTRACTS[tool];
   if (c.state !== 'ACTIVE') return;
   c.state = 'DEPRECATED'; c.sunsetDay = state.day + 5;
-  log(null, 'REVIEW_REQUIRED', `contract ${tool}@${c.version} deprecated; sunset on day ${c.sunsetDay}`);
+  log(null, 'REVIEW_REQUIRED', `contract ${tool}@${c.version} deprecated; sunset on day ${c.sunsetDay}`, 'batch', { actor: 'operator', action: 'CONTRACT_DEPRECATED' });
 }
