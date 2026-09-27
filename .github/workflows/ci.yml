@@ -103,11 +103,15 @@ jobs:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --locked
-      # Golden runs join CI once an agent harness exists (M5b); lint gates the files now.
+      # Golden runs stay out of CI until a network-isolated runner exists (D-089).
       - run: uv run adapter-verify golden lint
 
   contract-check:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -115,11 +119,43 @@ jobs:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --locked
-      # Report goes to the job summary. REVIEW_REQUIRED passes only with the review label;
-      # branch protection must require CODEOWNER review so only owners can apply it.
-      - run: >-
-          uv run adapter-verify contract check
-          ${{ contains(github.event.pull_request.labels.*.name, 'contract-review-approved') && '--review-approved' || '' }}
+      # REVIEW_REQUIRED passes only when a CODEOWNER applied the review label (§5.7).
+      # A failed lookup leaves approved unset, so the check runs without the override.
+      - name: Review label applied by a code owner
+        id: review
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: >-
+          uv run python scripts/review_label.py --pr "$PR_NUMBER" --repo "$REPO"
+          --label contract-review-approved --codeowners .github/CODEOWNERS
+      # Report goes to the job summary and to a retained artifact that records the approver.
+      - name: Contract check
+        env:
+          REVIEW_APPROVED: ${{ steps.review.outcome == 'success' && steps.review.outputs.approved == 'true' }}
+          APPROVER: ${{ steps.review.outputs.approver }}
+        run: |
+          args=(--report contract-report.md)
+          if [ "$REVIEW_APPROVED" = "true" ] && [ -n "$APPROVER" ]; then
+            args+=(--review-approved)
+          fi
+          status=0
+          uv run adapter-verify contract check "${args[@]}" || status=$?
+          if [[ " ${args[*]} " == *" --review-approved "* ]] \
+            && grep -qsF 'Review required, passed by' contract-report.md; then
+            printf '\nReview label applied by code owner @%s.\n' "$APPROVER" \
+              | tee -a contract-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: contract-report
+          path: contract-report.md
+          retention-days: 90
 
   lockfile:
     runs-on: ubuntu-24.04

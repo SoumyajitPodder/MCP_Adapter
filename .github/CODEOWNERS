@@ -6,7 +6,8 @@
 /sources/                    @shaswat28
 /src/adapter_verify/contract_ci/rules.yaml  @shaswat28
 /policies/                   @shaswat28
-/golden_tasks/quarantine.yaml @shaswat28
+/golden_tasks/               @shaswat28
+/tests/golden_selftest/      @shaswat28
 /catalog/                    @shaswat28
 /credentials.yaml            @shaswat28
 /migrations/                 @shaswat28
