@@ -6,7 +6,13 @@ from pydantic import SecretStr
 from adapter_kernel.context import CallContext, RequestContext
 from adapter_kernel.errors import ErrorCode
 from adapter_kernel.meta import ResponseMeta
-from adapter_kernel.pipeline import ToolFailure, ToolRequest, ToolResult, ToolSuccess
+from adapter_kernel.pipeline import (
+    DeliveryStatus,
+    ToolFailure,
+    ToolRequest,
+    ToolResult,
+    ToolSuccess,
+)
 from adapter_kernel.tooldef import Behavior
 from adapter_verify.access.domain.credentials import CredentialBinding, CredentialMap
 from adapter_verify.access.domain.lint import PolicyDocument
@@ -61,7 +67,8 @@ class World:
         del request
         self.next_calls += 1
         return ToolResult(
-            outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id=ctx.correlation_id))
+            outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id=ctx.correlation_id)),
+            delivery=DeliveryStatus.ACKED,
         )
 
     def audit_rules(self) -> list[object]:

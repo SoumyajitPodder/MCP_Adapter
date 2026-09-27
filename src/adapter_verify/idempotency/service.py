@@ -177,13 +177,17 @@ class _Held:
     from_state: IdemState | None
 
 
-def _failure(code: ErrorCode, ctx: CallContext, *, retry_after_ms: int | None = None) -> ToolResult:
-    return ToolResult(
-        outcome=ToolFailure(
-            error=AdapterError(code=code, retry_after_ms=retry_after_ms),
-            meta=ResponseMeta(correlation_id=ctx.correlation_id),
-        )
+def _refusal(
+    code: ErrorCode, ctx: CallContext, *, retry_after_ms: int | None = None
+) -> ToolFailure:
+    return ToolFailure(
+        error=AdapterError(code=code, retry_after_ms=retry_after_ms),
+        meta=ResponseMeta(correlation_id=ctx.correlation_id),
     )
+
+
+def _failure(code: ErrorCode, ctx: CallContext, *, retry_after_ms: int | None = None) -> ToolResult:
+    return ToolResult(outcome=_refusal(code, ctx, retry_after_ms=retry_after_ms), delivery=None)
 
 
 class IdempotencyStage:
@@ -344,7 +348,7 @@ class IdempotencyStage:
         self._observer.emit(
             span, ctx, stage=SpanName.IDEMPOTENCY_RESERVE, error_code=code, replayed=True
         )
-        return ToolResult(outcome=outcome)
+        return ToolResult(outcome=outcome, delivery=None)
 
     def _reject(self, span: SpanHandle, ctx: CallContext, code: ErrorCode) -> ToolResult:
         self._emit_failure(span, ctx, code)
@@ -461,11 +465,12 @@ class IdempotencyStage:
                 )  # after an effect an audit failure cannot undo it: the diagnostic is the alert
             if settlement.alert is not None:
                 observer.alerts.alert(settlement.alert, attempt.key, ctx.correlation_id)
-            answer = (
-                result
-                if result is not None and settlement.agent_error is None
-                else _failure(settlement.agent_error or ErrorCode.INTERNAL, ctx)
-            )
+            if result is None:  # the downstream call raised; the caller re-raises and drops this
+                answer = _failure(settlement.agent_error or ErrorCode.INTERNAL, ctx)
+            elif settlement.agent_error is None:
+                answer = result
+            else:  # the connector ran: keep its delivery status on the answer
+                answer = result.with_outcome(_refusal(settlement.agent_error, ctx))
             code = answer.outcome.error.code if isinstance(answer.outcome, ToolFailure) else None
             observer.emit(
                 span,

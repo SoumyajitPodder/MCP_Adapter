@@ -176,7 +176,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Result passed back up the stage chain.\n\n``delivery`` is internal: it is removed at the MCP boundary and never reaches an agent.\nIt is None when the call never reached a connector (e.g. rejected by an earlier stage).",
+  "description": "Result passed back up the stage chain.\n\n``delivery`` is internal: it is removed at the MCP boundary and never reaches an agent.\nIt has no default. Every stage that builds a result after the connector ran must carry\nthe connector's status forward (``with_outcome`` does); None asserts that nothing was\nsent, and idempotency (§7) then lets a retry execute the call again (R-002).",
   "properties": {
     "delivery": {
       "anyOf": [
@@ -187,8 +187,7 @@
           "type": "null"
         }
       ],
-      "default": null,
-      "description": "Connector-reported delivery status. Internal only."
+      "description": "Connector-reported delivery status. Internal only. Required: None asserts the call never reached a connector; stages after the connector carry its status forward."
     },
     "outcome": {
       "description": "Success or failure, discriminated by kind.",
@@ -211,7 +210,8 @@
     }
   },
   "required": [
-    "outcome"
+    "outcome",
+    "delivery"
   ],
   "title": "ToolResult",
   "type": "object"

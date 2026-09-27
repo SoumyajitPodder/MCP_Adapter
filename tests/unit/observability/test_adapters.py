@@ -10,7 +10,7 @@ from pydantic import SecretStr, ValidationError
 
 from adapter_kernel.errors import ErrorCode
 from adapter_kernel.meta import ResponseMeta
-from adapter_kernel.pipeline import ToolRequest, ToolResult, ToolSuccess
+from adapter_kernel.pipeline import DeliveryStatus, ToolRequest, ToolResult, ToolSuccess
 from adapter_verify.composition import build_runtime
 from adapter_verify.observability.adapters.otel import OtelTelemetry, build_tracer_provider
 from adapter_verify.observability.adapters.stdlog import JsonFormatter, LogDiagnostics
@@ -130,7 +130,8 @@ async def test_runtime_wires_a_working_entry(caplog: pytest.LogCaptureFixture) -
     ) -> ToolResult:
         del ctx, credential
         return ToolResult(
-            outcome=ToolSuccess(content=request.arguments, meta=ResponseMeta(correlation_id="x"))
+            outcome=ToolSuccess(content=request.arguments, meta=ResponseMeta(correlation_id="x")),
+            delivery=DeliveryStatus.ACKED,
         )
 
     runtime = build_runtime(downstream, ObservabilitySettings())

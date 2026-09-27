@@ -93,7 +93,7 @@ Result passed back up the stage chain.
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `outcome` | `ToolSuccess \| ToolFailure` | yes | Success or failure, discriminated by kind. |
-| `delivery` | `DeliveryStatus \| None` | no | Connector-reported delivery status. Internal only. |
+| `delivery` | `DeliveryStatus \| None` | yes | Connector-reported delivery status. Internal only. Required: None asserts the call never reached a connector; stages after the connector carry its status forward. |
 
 #### `ToolSuccess`
 

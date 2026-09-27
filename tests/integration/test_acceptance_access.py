@@ -16,7 +16,13 @@ from pydantic import SecretStr
 from adapter_kernel.context import CallContext
 from adapter_kernel.errors import ErrorCode
 from adapter_kernel.meta import ResponseMeta
-from adapter_kernel.pipeline import ToolFailure, ToolRequest, ToolResult, ToolSuccess
+from adapter_kernel.pipeline import (
+    DeliveryStatus,
+    ToolFailure,
+    ToolRequest,
+    ToolResult,
+    ToolSuccess,
+)
 from adapter_verify import composition
 from adapter_verify.access.adapters.jwt import JwksCache, JwtTokenVerifier
 from adapter_verify.access.fakes import SENTINEL_SECRET_PREFIX, SentinelSecretManager
@@ -90,7 +96,8 @@ async def test_ungranted_agent_is_blocked_hidden_audited_and_nothing_leaks(
         return ToolResult(
             outcome=ToolSuccess(
                 content={"status": "ok"}, meta=ResponseMeta(correlation_id=ctx.correlation_id)
-            )
+            ),
+            delivery=DeliveryStatus.ACKED,
         )
 
     entry = ObservedEntry(

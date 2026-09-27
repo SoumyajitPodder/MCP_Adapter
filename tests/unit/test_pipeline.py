@@ -7,7 +7,14 @@ from pydantic import SecretStr
 from adapter_kernel.context import CallContext, RequestContext
 from adapter_kernel.errors import ErrorCode
 from adapter_kernel.meta import ResponseMeta
-from adapter_kernel.pipeline import Next, ToolFailure, ToolRequest, ToolResult, ToolSuccess
+from adapter_kernel.pipeline import (
+    DeliveryStatus,
+    Next,
+    ToolFailure,
+    ToolRequest,
+    ToolResult,
+    ToolSuccess,
+)
 from adapter_kernel.tooldef import Behavior
 from adapter_verify import composition
 from adapter_verify.access.fakes import SentinelSecretManager, StaticTokenVerifier
@@ -48,7 +55,8 @@ def _ctx() -> CallContext:
 
 def _ok(ctx: CallContext) -> ToolResult:
     return ToolResult(
-        outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id=ctx.correlation_id))
+        outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id=ctx.correlation_id)),
+        delivery=DeliveryStatus.ACKED,
     )
 
 

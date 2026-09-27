@@ -17,7 +17,7 @@ from pydantic import SecretStr
 from adapter_kernel.context import RequestContext
 from adapter_kernel.jsontypes import JsonObject
 from adapter_kernel.meta import ResponseMeta
-from adapter_kernel.pipeline import ToolRequest, ToolResult, ToolSuccess
+from adapter_kernel.pipeline import DeliveryStatus, ToolRequest, ToolResult, ToolSuccess
 from adapter_kernel.tooldef import Behavior
 from adapter_verify.common.fakes import ManualClock, SeededEntropy
 from adapter_verify.observability.adapters.otel import OtelTelemetry
@@ -97,7 +97,8 @@ class FakePipeline:
         return ToolResult(
             outcome=ToolSuccess(
                 content=request.arguments, meta=ResponseMeta(correlation_id=ctx.correlation_id)
-            )
+            ),
+            delivery=DeliveryStatus.ACKED,
         )
 
 

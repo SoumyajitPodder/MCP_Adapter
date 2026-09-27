@@ -81,7 +81,8 @@ async def test_input_stage_fails_closed_without_a_definition(tmp_path: Path) -> 
     async def ok(ctx: CallContext, request: ToolRequest) -> ToolResult:
         del request
         return ToolResult(
-            outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id=ctx.correlation_id))
+            outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id=ctx.correlation_id)),
+            delivery=DeliveryStatus.ACKED,
         )
 
     unknown = _ctx("order.list")

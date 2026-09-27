@@ -1,7 +1,7 @@
 """Pipeline stage interface (brief §3.5) and the results that flow through it."""
 
 from enum import StrEnum
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, Protocol, Self
 
 from pydantic import Field
 
@@ -54,15 +54,25 @@ class ToolResult(KernelModel):
     """Result passed back up the stage chain.
 
     ``delivery`` is internal: it is removed at the MCP boundary and never reaches an agent.
-    It is None when the call never reached a connector (e.g. rejected by an earlier stage).
+    It has no default. Every stage that builds a result after the connector ran must carry
+    the connector's status forward (``with_outcome`` does); None asserts that nothing was
+    sent, and idempotency (§7) then lets a retry execute the call again (R-002).
     """
 
     outcome: Annotated[ToolSuccess | ToolFailure, Field(discriminator="kind")] = Field(
         description="Success or failure, discriminated by kind."
     )
     delivery: DeliveryStatus | None = Field(
-        default=None, description="Connector-reported delivery status. Internal only."
+        description=(
+            "Connector-reported delivery status. Internal only. Required: None asserts the"
+            " call never reached a connector; stages after the connector carry its status"
+            " forward."
+        )
     )
+
+    def with_outcome(self, outcome: ToolSuccess | ToolFailure) -> Self:
+        """This result with a new outcome and the same delivery status."""
+        return type(self)(outcome=outcome, delivery=self.delivery)
 
 
 class Next(Protocol):

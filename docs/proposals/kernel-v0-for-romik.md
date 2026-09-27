@@ -58,3 +58,9 @@ My code is transport-neutral. The server hands it an `InboundCall(tool, argument
 - One classifier implementation shared by runtime drift and contract CI.
 - Package name `adapter-kernel`, semver, living in its own workspace member until we pick monorepo vs separate repos.
 - **Python 3.12** on both sides.
+
+### 10. `ToolResult.delivery` is now required (R-002)
+
+It has no default: a stage that rebuilt a result after an acknowledged write and dropped it would tell idempotency nothing was sent, and a retry would execute the write again. `None` must be passed explicitly and means the call never reached a connector.
+
+**Your side:** any stage that rebuilds a result after the connector (drift absorption, translation, output validation) carries `delivery` forward; `result.with_outcome(...)` does it.

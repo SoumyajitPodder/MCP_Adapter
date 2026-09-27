@@ -3,9 +3,15 @@ import asyncio
 import pytest
 
 from adapter_kernel.context import CallContext
-from adapter_kernel.errors import ErrorCode
+from adapter_kernel.errors import AdapterError, ErrorCode
 from adapter_kernel.jsontypes import JsonValue
-from adapter_kernel.pipeline import ToolFailure, ToolRequest, ToolResult, ToolSuccess
+from adapter_kernel.pipeline import (
+    DeliveryStatus,
+    ToolFailure,
+    ToolRequest,
+    ToolResult,
+    ToolSuccess,
+)
 from adapter_kernel.tooldef import Behavior
 from adapter_verify.idempotency.domain.records import AlertKind, IdemState, RecordKey
 from adapter_verify.idempotency.fakes import Fault
@@ -149,6 +155,33 @@ async def test_acknowledged_then_failed_completes_with_the_error() -> None:
     assert isinstance(replay.outcome, ToolFailure)
     assert replay.outcome.error.code is ErrorCode.CONTRACT_VIOLATION
     assert replay.outcome.meta.replayed is True
+    assert world.connector.calls == 1
+
+
+async def test_later_stage_failure_after_an_ack_is_never_re_executed() -> None:
+    """A stage after the connector (e.g. output validation) fails an acknowledged write. It
+    keeps the delivery status, so the key completes with the error instead of freeing up."""
+    world = World()
+
+    async def validated(ctx: CallContext, request: ToolRequest) -> ToolResult:
+        result = await world.connector(ctx, request)
+        return result.with_outcome(
+            ToolFailure(
+                error=AdapterError(code=ErrorCode.CONTRACT_VIOLATION), meta=result.outcome.meta
+            )
+        )
+
+    first = await world.stage(context(), ToolRequest(arguments=ARGS), validated)
+    assert error(first) is ErrorCode.CONTRACT_VIOLATION
+    assert first.delivery is DeliveryStatus.ACKED
+    record = world.store.records[KEY]
+    assert (record.state, record.error_code) == (IdemState.COMPLETED, ErrorCode.CONTRACT_VIOLATION)
+    assert _alerts(world) == [AlertKind.EFFECT_WITH_ERROR]
+
+    retry = await world.stage(context(cid="c-2"), ToolRequest(arguments=ARGS), validated)
+    assert error(retry) is ErrorCode.CONTRACT_VIOLATION
+    assert isinstance(retry.outcome, ToolFailure)
+    assert retry.outcome.meta.replayed is True
     assert world.connector.calls == 1
 
 

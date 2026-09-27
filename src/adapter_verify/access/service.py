@@ -155,7 +155,8 @@ def failure(code: ErrorCode, correlation_id: str) -> ToolResult:
     return ToolResult(
         outcome=ToolFailure(
             error=AdapterError(code=code), meta=ResponseMeta(correlation_id=correlation_id)
-        )
+        ),
+        delivery=None,
     )
 
 

@@ -7,7 +7,13 @@ from pydantic import SecretStr
 from adapter_kernel.context import RequestContext
 from adapter_kernel.errors import AdapterError, ErrorCode
 from adapter_kernel.meta import ResponseMeta
-from adapter_kernel.pipeline import ToolFailure, ToolRequest, ToolResult, ToolSuccess
+from adapter_kernel.pipeline import (
+    DeliveryStatus,
+    ToolFailure,
+    ToolRequest,
+    ToolResult,
+    ToolSuccess,
+)
 from adapter_verify.common.fakes import ManualClock, SeededEntropy
 from adapter_verify.observability.context import current_request
 from adapter_verify.observability.domain.attributes import Outcome, SpanName
@@ -65,7 +71,8 @@ class Harness:
         return ToolResult(
             outcome=ToolSuccess(
                 content=request.arguments, meta=ResponseMeta(correlation_id=ctx.correlation_id)
-            )
+            ),
+            delivery=DeliveryStatus.ACKED,
         )
 
     @property
@@ -146,7 +153,10 @@ async def test_span_and_event_share_ids_and_latency() -> None:
 
 async def test_downstream_meta_correlation_id_is_overwritten() -> None:
     h = Harness(
-        ToolResult(outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id="other")))
+        ToolResult(
+            outcome=ToolSuccess(content={}, meta=ResponseMeta(correlation_id="other")),
+            delivery=DeliveryStatus.ACKED,
+        )
     )
     result = await h.entry.handle(_call(**{META_CORRELATION_ID: "mine"}))
     assert result.outcome.meta.correlation_id == "mine"
@@ -165,7 +175,8 @@ async def test_failures_map_to_outcomes(code: ErrorCode, outcome: Outcome) -> No
         ToolResult(
             outcome=ToolFailure(
                 error=AdapterError(code=code), meta=ResponseMeta(correlation_id="x")
-            )
+            ),
+            delivery=DeliveryStatus.ACKED,
         )
     )
     await h.entry.handle(_call())
