@@ -19,7 +19,7 @@ from adapter_verify.observability.domain.redaction import (
 pytestmark = pytest.mark.property
 
 SENTINEL = "SENTINEL-7f3a"
-_keys = st.sampled_from(["a", "b", "c", "id", "name"])
+_keys = st.sampled_from(["a", "b", "c", "id", "name", "a.b", "a[]", "b[].c"])
 
 
 def _documents() -> st.SearchStrategy[JsonValue]:
@@ -51,6 +51,29 @@ def test_only_shown_paths_keep_their_values(doc: JsonValue, data: st.DataObject)
             continue
         assert isinstance(value, str)
         assert value.startswith("<redacted:")
+
+
+def _aliased_values(value: JsonValue, *, aliased: bool = False) -> list[JsonValue]:
+    if isinstance(value, dict):
+        return [
+            leaf
+            for k, v in value.items()
+            for leaf in _aliased_values(v, aliased=aliased or any(c in k for c in ".[]"))
+        ]
+    if isinstance(value, list):
+        return [leaf for v in value for leaf in _aliased_values(v, aliased=aliased)]
+    return [value] if aliased else []
+
+
+@given(doc=_documents(), level=st.sampled_from(Sensitivity))
+def test_keys_with_path_separators_never_reach_the_output(
+    doc: JsonValue, level: Sensitivity
+) -> None:
+    """Even when every path in the document is annotated, a value under a key containing
+    ``.``/``[]`` is never emitted: such keys are dropped, not matched against the schema."""
+    sensitivity = {p: level for p, _ in _leaves(doc)}
+    out = RedactionPolicy(sensitivity).redact(doc)
+    assert _aliased_values(out) == []
 
 
 @given(doc=_documents())

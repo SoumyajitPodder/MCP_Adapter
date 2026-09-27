@@ -107,3 +107,31 @@ def test_empty_policy_masks_everything() -> None:
     assert RedactionPolicy({}).redact("scalar") == UNANNOTATED_MASK
     assert RedactionPolicy({}).redact({"a": 1}) == {UNKNOWN_KEYS_FIELD: 1}
     assert RedactionPolicy({}).redact([1, 2]) == [UNANNOTATED_MASK, UNANNOTATED_MASK]
+
+
+def test_dotted_data_key_does_not_alias_a_nested_public_path() -> None:
+    policy = RedactionPolicy.from_schema(
+        {"properties": {"customer": {"properties": {"tier": {"x-sensitivity": "public"}}}}}
+    )
+    assert policy.redact({"customer.tier": "sentinel-secret"}) == {UNKNOWN_KEYS_FIELD: 1}
+    assert policy.redact({"customer": {"tier": "gold"}}) == {"customer": {"tier": "gold"}}
+
+
+@pytest.mark.parametrize("key", ["items[]", "items[].sku", "items[0]", "a]b", "c[d"])
+def test_bracketed_data_keys_are_dropped_and_counted(key: str) -> None:
+    policy = RedactionPolicy({"status": Sensitivity.PUBLIC, key: Sensitivity.PUBLIC})
+    assert policy.redact({key: "sentinel", "status": "OK"}) == {
+        "status": "OK",
+        UNKNOWN_KEYS_FIELD: 1,
+    }
+
+
+@pytest.mark.parametrize("name", ["customer.tier", "items[]", "a[0]", "b]"])
+def test_schema_property_names_with_path_separators_are_rejected(name: str) -> None:
+    schema: JsonObject = {
+        "properties": {"outer": {"properties": {name: {"x-sensitivity": "public"}}}}
+    }
+    with pytest.raises(ValueError, match="at outer contains"):
+        sensitivity_map(schema)
+    with pytest.raises(ValueError, match="at outer contains"):
+        RedactionPolicy.from_schema(schema)

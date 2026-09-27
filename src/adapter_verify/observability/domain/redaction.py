@@ -8,6 +8,8 @@ Rules:
   on containers do not propagate to children.
 - Object keys are kept only when the schema knows them. Unknown keys (e.g. maps keyed by
   account number) may themselves be data, so they are dropped and counted.
+- Keys containing a path separator (``.``, ``[``, ``]``) could alias a nested path, so data
+  keys like that are dropped and counted, and schema property names like that are an error.
 """
 
 from collections.abc import Iterable, Mapping
@@ -22,6 +24,13 @@ _MASKS: Final[Mapping[Sensitivity, str]] = {
     Sensitivity.PII: "<redacted:pii>",
     Sensitivity.SECRET: "<redacted:secret>",
 }
+
+
+_PATH_SEPARATORS: Final = frozenset(".[]")
+
+
+def _is_plain_key(key: str) -> bool:
+    return _PATH_SEPARATORS.isdisjoint(key)
 
 
 def child_path(parent: str, key: str) -> str:
@@ -83,7 +92,7 @@ class RedactionPolicy:
         unknown = 0
         for key, child in value.items():
             sub = child_path(path, key)
-            if sub in self._known:
+            if _is_plain_key(key) and sub in self._known:
                 out[key] = self._redact(child, sub)
             else:
                 unknown += 1
@@ -96,7 +105,8 @@ def sensitivity_map(schema: JsonObject) -> dict[str, Sensitivity]:
     """Collect ``x-sensitivity`` annotations from a JSON Schema's ``properties``/``items``.
 
     Other keywords (``$ref``, ``oneOf``, ...) are not followed, so fields under them stay
-    unannotated and therefore masked. An unrecognized annotation value is an error.
+    unannotated and therefore masked. An unrecognized annotation value, or a property name
+    containing ``.``, ``[`` or ``]``, is an error.
     """
     return _walk_schema(schema)[0]
 
@@ -120,6 +130,9 @@ def _walk_schema(schema: JsonObject) -> tuple[dict[str, Sensitivity], set[str]]:
         properties = node.get("properties")
         if isinstance(properties, dict):
             for key, child in properties.items():
+                if not _is_plain_key(key):
+                    msg = f"property name {key!r} at {path or '<root>'} contains . [ or ]"
+                    raise ValueError(msg)
                 walk(child, child_path(path, key))
         walk(node.get("items"), item_path(path))
 
