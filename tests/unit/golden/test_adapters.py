@@ -1,3 +1,4 @@
+import gc
 import socket
 import subprocess
 from datetime import UTC, datetime
@@ -15,7 +16,7 @@ from adapter_verify.golden.adapters.files import (
     read_results,
     write_results,
 )
-from adapter_verify.golden.adapters.gemini import GeminiAgent, GeminiJudge
+from adapter_verify.golden.adapters.gemini import ClientModels, GeminiAgent, GeminiJudge
 from adapter_verify.golden.adapters.git import GitError, GitRepo
 from adapter_verify.golden.domain.results import SuiteResults, TokenUsage
 from adapter_verify.golden.domain.tasks import AgentConfig
@@ -156,6 +157,7 @@ def test_guard_allows_addresses_resolved_for_allowed_hosts(monkeypatch: pytest.M
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
     with SocketEgressGuard(frozenset({"api.allowed.invalid"})).guard() as blocked:
         socket.getaddrinfo("api.allowed.invalid", 443)
+        socket.getaddrinfo(b"api.allowed.invalid", 443)  # anyio passes IDNA-encoded bytes
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(0.01)
         try:
@@ -174,7 +176,11 @@ def test_gemini_wiring_needs_a_key_and_a_known_harness() -> None:
         composition.golden_harness(no_key, reference, None)
     keyed = GoldenSettings(gemini_api_key=SecretStr("test-key-not-real"))
     models = composition.gemini_models(keyed)
-    assert models is not None
+    gc.collect()  # a collected Client would close the HTTP pool under the adapters
+    assert isinstance(models, ClientModels)
+    pool = models._client._api_client._async_httpx_client
+    assert pool is not None
+    assert not pool.is_closed
     assert isinstance(composition.golden_harness(keyed, reference, models), GeminiAgent)
     assert isinstance(composition.golden_judge(keyed, models), GeminiJudge)
     with pytest.raises(HarnessUnavailableError, match="'custom'"):

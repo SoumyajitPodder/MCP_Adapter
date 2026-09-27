@@ -45,6 +45,7 @@ from adapter_verify.golden.adapters.files import Workspace, load_calibration, lo
 from adapter_verify.golden.adapters.gemini import (
     REFERENCE_HARNESS,
     AsyncModels,
+    ClientModels,
     GeminiAgent,
     GeminiJudge,
 )
@@ -380,7 +381,7 @@ def gemini_models(settings: GoldenSettings) -> AsyncModels | None:
         api_key=settings.gemini_api_key.get_secret_value(),
         http_options=genai_types.HttpOptions(timeout=90_000, retry_options=retry),
     )
-    return client.aio.models
+    return ClientModels(client)
 
 
 def golden_harness(

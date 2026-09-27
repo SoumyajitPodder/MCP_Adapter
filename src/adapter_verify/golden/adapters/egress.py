@@ -27,8 +27,12 @@ class SocketEgressGuard:
         real_connect_ex = socket.socket.connect_ex
         allowed = self._allowed
 
+        def name_of(host: Any) -> str:  # noqa: ANN401
+            # anyio resolves IDNA-encoded bytes, e.g. b"generativelanguage.googleapis.com".
+            return host.decode("idna") if isinstance(host, bytes) else str(host)
+
         def host_of(address: Any) -> str:  # noqa: ANN401 - socket addresses are untyped tuples
-            return str(address[0]) if isinstance(address, tuple) and address else str(address)
+            return name_of(address[0] if isinstance(address, tuple) and address else address)
 
         def check(host: str) -> None:
             if host not in allowed and host not in resolved:
@@ -37,7 +41,7 @@ class SocketEgressGuard:
                 raise OSError(msg)
 
         def getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            check(str(host))
+            check(name_of(host))
             infos = real_getaddrinfo(host, *args, **kwargs)
             resolved.update(str(info[4][0]) for info in infos)
             return infos

@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from typing import Any, Final, Protocol
 
 import rfc8785
+from google import genai
 from google.genai import types
 
 from adapter_kernel.errors import ERROR_SPECS
@@ -52,6 +53,24 @@ class AsyncModels(Protocol):
         contents: list[types.Content] | str,
         config: types.GenerateContentConfig | None = None,
     ) -> types.GenerateContentResponse: ...
+
+
+class ClientModels:
+    """``client.aio.models`` bound to its client: a collected ``Client`` closes its HTTP pool."""
+
+    def __init__(self, client: genai.Client) -> None:
+        self._client = client
+
+    async def generate_content(
+        self,
+        *,
+        model: str,
+        contents: list[types.Content] | str,
+        config: types.GenerateContentConfig | None = None,
+    ) -> types.GenerateContentResponse:
+        return await self._client.aio.models.generate_content(
+            model=model, contents=contents, config=config
+        )
 
 
 def _usage(response: types.GenerateContentResponse) -> TokenUsage:
