@@ -85,7 +85,6 @@ h1,h2,h3,h4,p{margin:0}
 .confrow span{flex:0 0 118px}
 .confrow b{flex:0 0 34px;text-align:right;color:var(--ink)}
 
-<<<<<<< HEAD
 /* workspace: toggleable sidebar + tabbed workarea */
 .workspace{display:flex;gap:14px;align-items:flex-start;position:relative}
 .sidebar{
@@ -110,11 +109,6 @@ h1,h2,h3,h4,p{margin:0}
 .workspace.collapsed .sidebar-pull{left:0}
 .sidebar-pull span{font-size:15px;line-height:1;pointer-events:none}
 
-=======
-/* grid */
-.grid{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;gap:14px;align-items:start}
-.col{display:flex;flex-direction:column;gap:14px;min-width:0}
->>>>>>> 65080c04c350f0163a71689589d5137d010e7105
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
 .card > h2{font-size:15px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .card > h2 small{font-weight:500;color:var(--ink-2);font-size:12.5px}
