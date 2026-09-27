@@ -41,7 +41,11 @@ def https_jwks_fetcher(url: str, timeout_s: float) -> JwksFetcher:
 
 
 class JwksCache:
-    """Signing keys by ``kid``, refreshed after ``ttl_s``. A stale set is never used."""
+    """Signing keys by ``kid``, refreshed after ``ttl_s``. A stale set is never used.
+
+    A fresh cached key is returned without waiting, even while a refresh is in flight. At most
+    one fetch runs at a time; every caller that needs a refresh awaits that same fetch.
+    """
 
     def __init__(
         self, fetch: JwksFetcher, clock: Clock, *, ttl_s: float, min_refresh_s: float
@@ -52,31 +56,47 @@ class JwksCache:
         self._min_refresh_s = min_refresh_s
         self._keys: dict[str, jwt.PyJWK] = {}
         self._fetched_at: float | None = None
-        self._lock = asyncio.Lock()
+        self._attempted_at: float | None = None
+        self._inflight: asyncio.Task[None] | None = None
 
     async def key(self, kid: str) -> jwt.PyJWK:
-        async with self._lock:
-            now = self._clock.monotonic()
-            fresh = self._fetched_at is not None and now - self._fetched_at < self._ttl_s
-            # Refresh on expiry, or on an unknown kid (key rotation) at most every min_refresh_s,
-            # so a flood of random kids cannot hammer the identity provider.
-            recent = self._fetched_at is not None and now - self._fetched_at < self._min_refresh_s
-            if not fresh or (kid not in self._keys and not recent):
-                await self._refresh(now)
-            if self._fetched_at is None or now - self._fetched_at >= self._ttl_s:
-                raise TokenRejectedError
-            found = self._keys.get(kid)
-            if found is None:
-                raise TokenRejectedError
-            return found
+        if self._fresh() and kid in self._keys:
+            return self._keys[kid]
+        # Refresh on expiry, or on an unknown kid (key rotation) at most every min_refresh_s,
+        # counted from the last attempt, so a flood of random kids cannot hammer the identity
+        # provider even while it is failing.
+        now = self._clock.monotonic()
+        recent = self._attempted_at is not None and now - self._attempted_at < self._min_refresh_s
+        if not self._fresh() or self._inflight is not None or not recent:
+            await self._refreshed()
+        found = self._keys.get(kid)
+        if not self._fresh() or found is None:
+            raise TokenRejectedError
+        return found
 
-    async def _refresh(self, now: float) -> None:
+    def _fresh(self) -> bool:
+        now = self._clock.monotonic()
+        return self._fetched_at is not None and now - self._fetched_at < self._ttl_s
+
+    async def _refreshed(self) -> None:
+        if self._inflight is None:
+            self._inflight = asyncio.create_task(self._refresh())
+        # The cache owns the fetch: a cancelled caller stops waiting without cancelling it for
+        # everyone else.
+        await asyncio.shield(self._inflight)
+
+    async def _refresh(self) -> None:
+        started = self._clock.monotonic()
+        self._attempted_at = started
         try:
             key_set = jwt.PyJWKSet.from_dict(await self._fetch())
         except Exception:  # noqa: BLE001 - any fetch or parse failure: keep old set, which ages out
             return
-        self._keys = {k.key_id: k for k in key_set.keys if k.key_id}
-        self._fetched_at = now
+        else:
+            self._keys = {k.key_id: k for k in key_set.keys if k.key_id}
+            self._fetched_at = started
+        finally:
+            self._inflight = None
 
 
 class JwtTokenVerifier:

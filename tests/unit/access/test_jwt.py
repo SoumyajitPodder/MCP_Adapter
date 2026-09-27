@@ -1,5 +1,6 @@
 """JWT verification. Keys are generated per test run; nothing secret is stored in the repo."""
 
+import asyncio
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -36,9 +37,14 @@ class Fetcher:
     def __init__(self) -> None:
         self.calls = 0
         self.fail = False
+        self.started = asyncio.Event()
+        self.gate: asyncio.Event | None = None
 
     async def __call__(self) -> dict[str, object]:
         self.calls += 1
+        self.started.set()
+        if self.gate is not None:
+            await self.gate.wait()
         if self.fail:
             raise OSError("idp down")
         return _jwks()
@@ -138,6 +144,89 @@ async def test_unknown_kids_cannot_force_constant_refetching() -> None:
         with pytest.raises(TokenRejectedError):
             await verifier.verify(_token(_claims(), kid="random"))
     assert fetcher.calls == 1
+
+
+def _cache(fetcher: Fetcher, clock: ManualClock) -> JwksCache:
+    return JwksCache(fetcher, clock, ttl_s=300, min_refresh_s=30)
+
+
+def _block_next_fetch(fetcher: Fetcher) -> asyncio.Event:
+    fetcher.gate, fetcher.started = asyncio.Event(), asyncio.Event()
+    return fetcher.gate
+
+
+async def test_fresh_keys_are_served_while_a_refresh_is_in_flight() -> None:
+    fetcher, clock = Fetcher(), ManualClock(datetime(2026, 1, 1, tzinfo=UTC))
+    cache = _cache(fetcher, clock)
+    await cache.key("rsa-1")
+    clock.advance(31)
+    gate = _block_next_fetch(fetcher)
+    rotating = asyncio.create_task(cache.key("rotated-in"))
+    await fetcher.started.wait()
+
+    found = await asyncio.wait_for(cache.key("rsa-1"), timeout=1)
+    assert found.key_id == "rsa-1"
+    assert not rotating.done()
+
+    gate.set()
+    with pytest.raises(TokenRejectedError):
+        await rotating
+    assert fetcher.calls == 2
+
+
+async def test_concurrent_callers_share_one_fetch() -> None:
+    fetcher, clock = Fetcher(), ManualClock(datetime(2026, 1, 1, tzinfo=UTC))
+    cache = _cache(fetcher, clock)
+    await cache.key("rsa-1")
+    clock.advance(301)
+    gate = _block_next_fetch(fetcher)
+    waiters = [asyncio.create_task(cache.key(kid)) for kid in ("rsa-1", "ec-1") * 10]
+    await fetcher.started.wait()
+    await asyncio.sleep(0)
+    gate.set()
+
+    assert {k.key_id for k in await asyncio.gather(*waiters)} == {"rsa-1", "ec-1"}
+    assert fetcher.calls == 2
+
+
+async def test_failed_refresh_keeps_the_old_set_until_it_goes_stale() -> None:
+    fetcher, clock = Fetcher(), ManualClock(datetime(2026, 1, 1, tzinfo=UTC))
+    cache = _cache(fetcher, clock)
+    await cache.key("rsa-1")
+    clock.advance(31)
+    fetcher.fail = True
+    with pytest.raises(TokenRejectedError):
+        await cache.key("rotated-in")
+    with pytest.raises(TokenRejectedError):
+        await cache.key("rotated-in")
+    assert fetcher.calls == 2  # failed attempts count towards the unknown-kid rate limit
+
+    clock.advance(268)
+    assert (await cache.key("rsa-1")).key_id == "rsa-1"
+    clock.advance(1)
+    with pytest.raises(TokenRejectedError):
+        await cache.key("rsa-1")
+    assert fetcher.calls == 3
+
+
+async def test_cancelling_the_first_caller_does_not_break_other_waiters() -> None:
+    fetcher, clock = Fetcher(), ManualClock(datetime(2026, 1, 1, tzinfo=UTC))
+    cache = _cache(fetcher, clock)
+    await cache.key("rsa-1")
+    clock.advance(301)
+    gate = _block_next_fetch(fetcher)
+    first = asyncio.create_task(cache.key("rsa-1"))
+    await fetcher.started.wait()
+    second = asyncio.create_task(cache.key("rsa-1"))
+    await asyncio.sleep(0)
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    gate.set()
+
+    assert (await asyncio.wait_for(second, timeout=1)).key_id == "rsa-1"
+    assert fetcher.calls == 2
 
 
 async def test_jwks_url_must_be_https() -> None:
