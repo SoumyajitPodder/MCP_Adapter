@@ -6,6 +6,7 @@ Plain Markdown for stdout, ``--report`` and ``$GITHUB_STEP_SUMMARY``.
 from collections.abc import Mapping
 
 from adapter_verify.golden.domain.results import (
+    ErrorKind,
     RunOutcome,
     SuiteResults,
     TaskResult,
@@ -38,6 +39,13 @@ def render(results: SuiteResults, description_diffs: Mapping[str, str]) -> str:
         lines += [
             "**The judge failed calibration; its verdicts are not trusted.** "
             "`adapter-verify golden calibrate` shows why.",
+            "",
+        ]
+    outages = sum(r.error is ErrorKind.MODEL_UNAVAILABLE for t in results.tasks for r in t.runs)
+    if outages:
+        lines += [
+            f"**{outages} run(s) couldn't reach the model (outage or quota); those runs are "
+            "undecided. Rerun when the model is available.**",
             "",
         ]
     if results.budget_exceeded:

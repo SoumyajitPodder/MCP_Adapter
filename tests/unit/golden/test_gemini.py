@@ -15,7 +15,13 @@ from adapter_kernel.pipeline import ToolFailure, ToolSuccess
 from adapter_verify.golden.adapters.gemini import GeminiAgent, GeminiJudge, idempotency_key
 from adapter_verify.golden.domain.judge import AnswerEvidence
 from adapter_verify.golden.domain.tasks import RunLimits
-from adapter_verify.golden.ports import JudgeUnavailableError, ToolCall, ToolView
+from adapter_verify.golden.ports import (
+    HarnessFailedError,
+    JudgeUnavailableError,
+    ModelUnavailableError,
+    ToolCall,
+    ToolView,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -153,6 +159,30 @@ async def test_agent_without_tools_or_usage() -> None:
     assert models.requests[0][2].tools is None
 
 
+def _api_error(code: int, status: str) -> genai_errors.APIError:
+    body = {"error": {"code": code, "status": status, "message": "free text"}}
+    if code >= 500:
+        return genai_errors.ServerError(code, body)
+    return genai_errors.ClientError(code, body)
+
+
+@pytest.mark.parametrize(
+    ("code", "status", "raised"),
+    [
+        (503, "UNAVAILABLE", ModelUnavailableError),
+        (429, "RESOURCE_EXHAUSTED", ModelUnavailableError),
+        (400, "INVALID_ARGUMENT", HarnessFailedError),
+    ],
+)
+async def test_agent_reports_api_errors_by_code_and_status_only(
+    code: int, status: str, raised: type[Exception]
+) -> None:
+    agent = GeminiAgent(FakeModels([_api_error(code, status)]), model="m", system_prompt="s")
+    with pytest.raises(raised) as error:
+        await agent.run("q", [VIEW], Tools(), RunLimits())
+    assert str(error.value) == f"{code} {status}"
+
+
 async def test_idempotency_keys_are_stable_per_call() -> None:
     a = idempotency_key("order.cancel", {"order_id": "1", "reason": "x"})
     assert a == idempotency_key("order.cancel", {"reason": "x", "order_id": "1"})
@@ -174,14 +204,21 @@ async def test_judge_returns_a_validated_verdict() -> None:
     assert config.response_mime_type == "application/json"
 
 
-async def test_judge_reports_api_errors_by_code_and_status_only() -> None:
-    quota = genai_errors.ClientError(
-        429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "free text"}}
-    )
-    judge = GeminiJudge(FakeModels([quota]), model="m")
-    with pytest.raises(JudgeUnavailableError) as raised:
+@pytest.mark.parametrize(
+    ("code", "status", "raised"),
+    [
+        (429, "RESOURCE_EXHAUSTED", ModelUnavailableError),
+        (500, "INTERNAL", ModelUnavailableError),
+        (400, "INVALID_ARGUMENT", JudgeUnavailableError),
+    ],
+)
+async def test_judge_reports_api_errors_by_code_and_status_only(
+    code: int, status: str, raised: type[Exception]
+) -> None:
+    judge = GeminiJudge(FakeModels([_api_error(code, status)]), model="m")
+    with pytest.raises(raised) as error:
         await judge.grade("r", AnswerEvidence(prompt="q", tool_results=(), answer="a"))
-    assert str(raised.value) == "429 RESOURCE_EXHAUSTED"
+    assert str(error.value) == f"{code} {status}"
 
 
 @pytest.mark.parametrize("text", ["not json", '{"score": 2, "passed": true, "reasons": ["x"]}', ""])

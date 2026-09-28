@@ -43,8 +43,10 @@ from adapter_verify.golden.ports import (
     AgentRun,
     EgressGuard,
     HarnessFactory,
+    HarnessFailedError,
     Judge,
     JudgeUnavailableError,
+    ModelUnavailableError,
     SandboxFactory,
     SandboxSession,
     ToolCall,
@@ -88,6 +90,14 @@ class _Recorder:
         self.records.append(record)
         self.results.append(outcome)
         return outcome
+
+
+@dataclass(frozen=True)
+class _NoVerdict:
+    """Why the judge gave no verdict; ``outage`` when its model was unavailable (D-094)."""
+
+    reason: str
+    outage: bool = False
 
 
 def _error(index: int, kind: ErrorKind, detail: str, **kw: object) -> RunRecord:
@@ -185,7 +195,9 @@ class GoldenRunner:
             return [NO_CALIBRATION_CASES]
         misses = []
         for case in self._calibration:
-            miss = calibration_miss(case, await self._grade(case.rubric, case.evidence))
+            verdict = await self._grade(case.rubric, case.evidence)
+            reason = verdict.reason if isinstance(verdict, _NoVerdict) else verdict
+            miss = calibration_miss(case, reason)
             if miss is not None:
                 misses.append(miss)
                 if miss.judge_error is not None:
@@ -196,16 +208,18 @@ class GoldenRunner:
         misses = await self.calibrate()
         return None if misses is None else not misses
 
-    async def _grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict | str:
+    async def _grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict | _NoVerdict:
         """The verdict, or why there is none."""
         if self._judge is None:  # pragma: no cover - callers check first
-            return "no judge"
+            return _NoVerdict("no judge")
         try:
             return await self._judge.grade(rubric, evidence)
+        except ModelUnavailableError as exc:
+            return _NoVerdict(str(exc), outage=True)
         except JudgeUnavailableError as exc:
-            return str(exc)
+            return _NoVerdict(str(exc))
         except Exception as exc:  # noqa: BLE001 - any judge failure is a missing verdict
-            return safe_exception_summary(exc)
+            return _NoVerdict(safe_exception_summary(exc))
 
     async def _run_once(
         self,
@@ -228,6 +242,10 @@ class GoldenRunner:
                     )
             except TimeoutError:
                 attempt.timed_out = True
+            except ModelUnavailableError as exc:
+                attempt.outage = f"agent model unavailable: {exc}"
+            except HarnessFailedError as exc:
+                attempt.failure = str(exc)
             except Exception as exc:  # noqa: BLE001 - any harness failure fails the run
                 attempt.failure = safe_exception_summary(exc)
         attempt.blocked = list(blocked)
@@ -278,8 +296,12 @@ class GoldenRunner:
             answer=answer,
         )
         verdict = await self._grade(rubric, evidence)
-        if isinstance(verdict, str):
-            return attempt.error(ErrorKind.JUDGE_ERROR, f"judge failed: {verdict}")
+        if isinstance(verdict, _NoVerdict) and verdict.outage:
+            return attempt.error(
+                ErrorKind.MODEL_UNAVAILABLE, f"judge model unavailable: {verdict.reason}"
+            )
+        if isinstance(verdict, _NoVerdict):
+            return attempt.error(ErrorKind.JUDGE_ERROR, f"judge failed: {verdict.reason}")
         if not verdict.consistent:
             return attempt.error(ErrorKind.JUDGE_ERROR, "judge verdict inconsistent", judge=verdict)
         if not verdict.passed:
@@ -300,6 +322,7 @@ class _Attempt:
     agent_run: AgentRun | None = None
     blocked: list[str] = field(default_factory=list)
     timed_out: bool = False
+    outage: str | None = None
     failure: str | None = None
 
     @property
@@ -341,6 +364,8 @@ class _Attempt:
         over = next((why for hit, why in reasons if hit), None)
         if over is not None:
             return self.error(ErrorKind.BUDGET_EXCEEDED, over)
+        if self.outage is not None:
+            return self.error(ErrorKind.MODEL_UNAVAILABLE, self.outage)
         if self.failure is not None:
             return self.error(ErrorKind.HARNESS_ERROR, self.failure)
         return None

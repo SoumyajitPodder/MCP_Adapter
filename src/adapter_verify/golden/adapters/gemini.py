@@ -23,7 +23,9 @@ from adapter_verify.golden.domain.results import TokenUsage
 from adapter_verify.golden.domain.tasks import RunLimits
 from adapter_verify.golden.ports import (
     AgentRun,
+    HarnessFailedError,
     JudgeUnavailableError,
+    ModelUnavailableError,
     ToolCall,
     ToolCaller,
     ToolView,
@@ -78,6 +80,22 @@ class ClientModels:
         return await self._client.aio.models.generate_content(
             model=model, contents=contents, config=config
         )
+
+
+_TOO_MANY_REQUESTS: Final = 429
+_SERVER_ERROR: Final = 500
+
+
+def _outage(exc: genai_errors.APIError) -> ModelUnavailableError | None:
+    """Quota and server errors are outages (D-094); the reason is code and status only, since
+    the message is free text and can echo request data (D-090, D-093)."""
+    if exc.code == _TOO_MANY_REQUESTS or exc.code >= _SERVER_ERROR:
+        return ModelUnavailableError(_reason(exc))
+    return None
+
+
+def _reason(exc: genai_errors.APIError) -> str:
+    return f"{exc.code} {exc.status}"
 
 
 def _usage(response: types.GenerateContentResponse) -> TokenUsage:
@@ -144,9 +162,12 @@ class GeminiAgent:
         ]
         usage, reported = TokenUsage(), None
         for _ in range(limits.max_tool_calls + 1):
-            response = await self._models.generate_content(
-                model=self._model, contents=contents, config=config
-            )
+            try:
+                response = await self._models.generate_content(
+                    model=self._model, contents=contents, config=config
+                )
+            except genai_errors.APIError as exc:
+                raise _outage(exc) or HarnessFailedError(_reason(exc)) from exc
             usage += _usage(response)
             reported = response.model_version or reported
             calls = response.function_calls or []
@@ -208,6 +229,6 @@ class GeminiJudge:
                     response_json_schema=_VERDICT_SCHEMA,
                 ),
             )
-        except genai_errors.APIError as exc:  # code and status only: the message is free text
-            raise JudgeUnavailableError(f"{exc.code} {exc.status}") from exc
+        except genai_errors.APIError as exc:
+            raise _outage(exc) or JudgeUnavailableError(_reason(exc)) from exc
         return JudgeVerdict.model_validate_json(response.text or "")

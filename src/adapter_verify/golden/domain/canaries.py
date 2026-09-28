@@ -32,6 +32,8 @@ class CanaryStatus(StrEnum):
     """No task touches what the canary changed: a blind spot by construction."""
     BASELINE_FAILING = "baseline_failing"
     """No affected task passed unmutated, so the canary can't be judged."""
+    INCOMPLETE = "incomplete"
+    """Nothing failed, but a mutated task was undecided (e.g. the model was unavailable)."""
 
 
 class CanaryConfig(FrozenModel):
@@ -151,7 +153,9 @@ def status(
     ]
     if not passing or mutated is None:
         return CanaryStatus.BASELINE_FAILING
-    caught = any(
-        (r := mutated.task(t)) is not None and r.verdict is TaskVerdict.FAIL for t in passing
-    )
-    return CanaryStatus.CAUGHT if caught else CanaryStatus.MISSED
+    verdicts = {r.verdict for t in passing if (r := mutated.task(t)) is not None}
+    if TaskVerdict.FAIL in verdicts:
+        return CanaryStatus.CAUGHT
+    if TaskVerdict.INCOMPLETE in verdicts:
+        return CanaryStatus.INCOMPLETE
+    return CanaryStatus.MISSED

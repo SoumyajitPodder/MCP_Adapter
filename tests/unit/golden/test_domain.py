@@ -176,12 +176,14 @@ def test_tools_touched() -> None:
     assert task.tools() == {"order.get", "order.cancel", "order.list"}
 
 
-def _run(outcome: RunOutcome, index: int = 1) -> RunRecord:
+def _run(
+    outcome: RunOutcome, index: int = 1, error: ErrorKind = ErrorKind.HARNESS_ERROR
+) -> RunRecord:
     extra: dict[str, object] = {}
     if outcome is RunOutcome.FAIL:
         extra["failure"] = LayerFailure(layer=Layer.CALLS, expected="e", actual="a")
     if outcome is RunOutcome.ERROR:
-        extra["error"] = ErrorKind.HARNESS_ERROR
+        extra["error"] = error
     return RunRecord.model_validate({"index": index, "outcome": outcome, **extra})
 
 
@@ -203,6 +205,12 @@ def test_run_record_consistency() -> None:
 )
 def test_task_verdicts(outcomes: list[RunOutcome], verdict: TaskVerdict) -> None:
     assert task_verdict(2, [_run(o, i) for i, o in enumerate(outcomes, 1)]) is verdict
+
+
+def test_model_outage_is_undecided_not_failed() -> None:
+    down = _run(RunOutcome.ERROR, 2, ErrorKind.MODEL_UNAVAILABLE)
+    assert task_verdict(2, [_run(RunOutcome.PASS), down]) is TaskVerdict.INCOMPLETE
+    assert task_verdict(2, [_run(RunOutcome.FAIL), down]) is TaskVerdict.FAIL
 
 
 def _result(task_id: str, verdict: TaskVerdict, digest: str) -> TaskResult:
@@ -411,5 +419,10 @@ def test_report_names_the_layer_the_change_and_the_recommendation() -> None:
     assert "token budget (10) exceeded" in text
     assert "### Quarantine recommended" in text
     assert "```diff\n-old\n+new\n```" in text
+    outage = _result("t3", TaskVerdict.INCOMPLETE, "d").model_copy(
+        update={"runs": (_run(RunOutcome.ERROR, error=ErrorKind.MODEL_UNAVAILABLE),)}
+    )
+    assert "1 run(s) couldn't reach the model" in render(_suite(outage), {})
+    assert "couldn't reach the model" not in text
     uncalibrated = _suite().model_copy(update={"judge_model": "j", "judge_calibrated": False})
     assert "failed calibration" in render(uncalibrated, {})

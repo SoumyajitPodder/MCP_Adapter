@@ -81,7 +81,7 @@ def test_run_writes_results_and_report(
     out = _golden("run", "--agent", "reader", "--results", "r.json", "--report", "report.md")
     assert out.exit_code == 1, out.output  # the reader must not even attempt order.cancel
     body = json.loads((repo.root / "r.json").read_text(encoding="utf-8"))
-    assert body["schema_version"] == 1
+    assert body["schema_version"] == 2
     assert [t["task_id"] for t in body["tasks"]] == ["order-inflight"]
     report = (repo.root / "report.md").read_text(encoding="utf-8")
     assert "**sequence** layer failed" in report

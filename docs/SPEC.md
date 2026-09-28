@@ -1,6 +1,6 @@
 # adapter_verify — Specification (LLD §5–9)
 
-> **Status:** M0–M5 implemented: §8, §9, §7, §5 and §6. The golden suite has not yet run against the live model; that needs the owner's Gemini key. Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
+> **Status:** M0–M5 implemented: §8, §9, §7, §5 and §6. Against the live model, judge calibration has passed; a full golden suite run has not yet completed (free-tier quota and outages). Sections marked *generated* will be produced by `scripts/gen_spec.py` and checked by the `spec-fresh` CI job. Don't edit between the `BEGIN/END GENERATED` markers by hand.
 >
 > Hand-written sections explain **why**. Generated sections state **what**.
 
@@ -353,6 +353,8 @@ See the gate bullet above and §11 (`contract check`).
      - Without a judge, runs are `not_judged`.
      - Either way the task is `incomplete`, which never passes a gate.
 - **Run errors:** `budget_exceeded` (calls, time, tokens, suite budget), `egress_blocked`, `sentinel_leak`, `harness_error`, `judge_error`. An error is a failed run, never retried.
+  - Except `model_unavailable`: the agent's or judge's model API answered 429 or 5xx. An outage says nothing about the agent, so the run is undecided, like `not_judged`, and the task can end `incomplete`.
+  - Model API errors are reported as HTTP code and status only (e.g. `503 UNAVAILABLE`); the message is free text.
 - **Verdict:** `pass` at `threshold` passing runs. Tasks that write must pass every run (lint). A task that fails twice in a row on unchanged inputs is reported as *quarantine recommended*; quarantine itself is a reviewed PR.
 - **Selection:** `--changed-since <ref>` re-runs the tasks whose definition, fixture, task file, agent config or policy changed. Adapter code, catalog or contract changes re-run everything.
 - **Results:** a JSON file per suite run (`SuiteResults`, schema version 1), plus a Markdown report showing expected vs actual per failure and a diff of every changed tool description.
@@ -361,12 +363,12 @@ See the gate bullet above and §11 (`contract check`).
   - `description_mislead`: curated text in `golden_tasks/canaries.yaml`;
   - `drop_field`: removes a field the agent relies on;
   - `timezone_shift`: moves timestamps and keeps `Z`.
-  - A canary is `caught` when a task that passed unmutated fails. Anything else (`missed`, `no_coverage`, `baseline_failing`) exits 1.
+  - A canary is `caught` when a task that passed unmutated fails. Anything else (`missed`, `no_coverage`, `baseline_failing`, `incomplete`) exits 1.
 - **Gate:** `golden gate --tool T --version V --results F` passes only on current (same input digest), passing evidence for every task touching `T@V`. Missing, stale, incomplete or zero coverage fails. A quarantined task blocks unless a waiver names the tool.
 
 ### 6.1 Task file schema
 <!-- BEGIN GENERATED: golden-task-schema -->
-JSON Schemas: `docs/schemas/GoldenTask.json`, `AgentConfig.json`, `QuarantineList.json`, `ToolDefinition.json`, `CalibrationCase.json`, `SuiteResults.json` (results schema version 1), `CanaryConfig.json`.
+JSON Schemas: `docs/schemas/GoldenTask.json`, `AgentConfig.json`, `QuarantineList.json`, `ToolDefinition.json`, `CalibrationCase.json`, `SuiteResults.json` (results schema version 2), `CanaryConfig.json`.
 
 #### `GoldenTask`
 
@@ -955,7 +957,7 @@ Check task files, agent configs, tool definitions and fixtures. Exit 1 on findin
 
 #### `adapter-verify golden run`
 
-Run golden tasks. Exit 0 all pass, 1 any fail, 2 incomplete (not judged), 3 tool error.
+Run golden tasks. Exit 0 all pass, 1 any fail, 2 incomplete (not judged or model unavailable), 3 tool error.
 
 | Option | Type | Default | Required | Meaning |
 | --- | --- | --- | --- | --- |

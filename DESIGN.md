@@ -7,6 +7,23 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-28 — Session 21: second live run hit an outage; outages made undecided
+
+`golden run --all` at `38b8558`: all 15 runs ended `harness_error` before any tool call. The agent model returned 5xx, then 4xx (likely 429 once the SDK retries spent the quota); the judge's calibration got `503 UNAVAILABLE`, confirmed by a separate `golden calibrate`. No tokens were recorded, so the suite budget is still unmeasured, and `golden canaries` was not run.
+
+The run showed two gaps, both fixed (owner approved D-093 and D-094):
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-093 | The Gemini agent reports API errors as HTTP code and status only, like the judge (D-090). Non-outage errors raise `HarnessFailedError`, whose text the runner keeps as the `harness_error` detail. | The report showed the exception type plus every frame with local paths, and no code, so a quota error couldn't be told from a bad request. | approved by owner |
+| D-094 | HTTP 429 or 5xx from the agent's or judge's model is `model_unavailable`: the run is undecided, like `not_judged`, so the task can end `incomplete` (`golden run` exits 2) and never counts toward quarantine. A judge outage during calibration leaves it uncalibrated, as before. Canaries get an `incomplete` status (exits 1) instead of a false `missed`. Results schema version 2. The report counts outage runs. | An outage marked all 5 tasks `fail`; a second such run would have recommended quarantining healthy tasks, and an outage in a mutated canary run would have counted as `caught`. Other harness errors still fail the run. Rejected: retrying in the runner (the SDK already retries; more retries spend more quota). | approved by owner |
+
+CI golden job stays off (D-089), per the owner.
+
+Open: stopping the suite at the first outage would save quota and time (this run spent about 10 minutes in SDK retries). Not done; needs owner approval.
+
+---
+
 ## 2026-09-26 — Session 20: review against the brief and Romik's branches; fixes
 
 Reviewed all of §5–9 against the brief, and against Romik's two branches (`romikChanges`: Python/Flask sandbox; `Romik-lifecycle`: browser JS lifecycle prototype). His contracts for `order.get`, `service.get` and `inventory.snapshot` match `contracts/`.

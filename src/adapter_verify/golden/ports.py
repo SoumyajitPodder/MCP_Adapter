@@ -59,7 +59,10 @@ class AgentHarness(Protocol):
         tools: Sequence[ToolView],
         call_tool: ToolCaller,
         limits: RunLimits,
-    ) -> AgentRun: ...
+    ) -> AgentRun:
+        """May raise ModelUnavailableError (outage) or HarnessFailedError (log-safe reason);
+        any other exception is reported by type and frames only."""
+        ...
 
 
 class HarnessUnavailableError(Exception):
@@ -68,7 +71,17 @@ class HarnessUnavailableError(Exception):
 
 class JudgeUnavailableError(Exception):
     """The judge gave no verdict. ``str()`` is a short, secret-free reason, e.g.
-    ``429 RESOURCE_EXHAUSTED``."""
+    ``400 INVALID_ARGUMENT``."""
+
+
+class HarnessFailedError(Exception):
+    """The harness failed in a way it can describe. ``str()`` is a short, secret-free reason."""
+
+
+class ModelUnavailableError(Exception):
+    """The model API couldn't serve a call: overloaded, down or out of quota (HTTP 429 or 5xx).
+    An outage says nothing about the agent, so the run is undecided, not failed (D-094).
+    ``str()`` is a short, secret-free reason, e.g. ``503 UNAVAILABLE``."""
 
 
 class HarnessFactory(Protocol):
@@ -85,7 +98,7 @@ class Judge(Protocol):
 
     async def grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict:
         """May raise, preferably JudgeUnavailableError; the runner turns any failure into
-        JUDGE_ERROR."""
+        JUDGE_ERROR, except ModelUnavailableError, which becomes MODEL_UNAVAILABLE."""
         ...
 
 

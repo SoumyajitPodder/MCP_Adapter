@@ -7,6 +7,7 @@ from pydantic import Field
 
 from adapter_verify.common.model import FrozenModel
 from adapter_verify.golden.domain.results import (
+    ErrorKind,
     RunOutcome,
     RunRecord,
     SuiteResults,
@@ -22,7 +23,7 @@ def task_verdict(threshold: int, runs: Sequence[RunRecord]) -> TaskVerdict:
     passed = sum(r.outcome is RunOutcome.PASS for r in runs)
     if passed >= threshold:
         return TaskVerdict.PASS
-    undecided = sum(r.outcome in _UNDECIDED for r in runs)
+    undecided = sum(r.outcome in _UNDECIDED or r.error is ErrorKind.MODEL_UNAVAILABLE for r in runs)
     return TaskVerdict.INCOMPLETE if passed + undecided >= threshold else TaskVerdict.FAIL
 
 

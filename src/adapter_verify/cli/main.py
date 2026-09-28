@@ -601,7 +601,8 @@ def golden_run(  # noqa: PLR0913, PLR0917 - one parameter per option
     results: Path | None,
     report: Path | None,
 ) -> None:
-    """Run golden tasks. Exit 0 all pass, 1 any fail, 2 incomplete (not judged), 3 tool error."""
+    """Run golden tasks. Exit 0 all pass, 1 any fail, 2 incomplete (not judged or model
+    unavailable), 3 tool error."""
     g = _Golden()
     if g.findings():
         _fail("golden tasks fail lint; run `adapter-verify golden lint`")

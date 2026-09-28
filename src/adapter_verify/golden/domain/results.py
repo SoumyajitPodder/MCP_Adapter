@@ -12,7 +12,7 @@ from adapter_verify.common.model import FrozenModel
 from adapter_verify.golden.domain.assertions import CallRecord, LayerFailure
 from adapter_verify.golden.domain.judge import JudgeVerdict
 
-RESULTS_SCHEMA_VERSION: Final = 1
+RESULTS_SCHEMA_VERSION: Final = 2
 
 
 class RunOutcome(StrEnum):
@@ -30,13 +30,16 @@ class ErrorKind(StrEnum):
     SENTINEL_LEAK = "sentinel_leak"
     HARNESS_ERROR = "harness_error"
     JUDGE_ERROR = "judge_error"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    """The agent's or judge's model API was down or out of quota: the run is undecided (D-094)."""
 
 
 class TaskVerdict(StrEnum):
     PASS = "pass"  # noqa: S105 - an enum label, not a credential
     FAIL = "fail"
     INCOMPLETE = "incomplete"
-    """Could still pass: the runs that didn't pass were not judged or the judge was uncalibrated."""
+    """Could still pass: the runs that didn't pass were not judged, the judge was uncalibrated,
+    or the model was unavailable."""
 
 
 class TokenUsage(FrozenModel):
@@ -99,7 +102,7 @@ class TaskResult(FrozenModel):
 
 
 class SuiteResults(FrozenModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     run_id: str = Field(min_length=1)
     git_sha: str | None
     started_at: AwareDatetime

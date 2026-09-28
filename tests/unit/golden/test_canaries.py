@@ -119,7 +119,7 @@ def test_canary_status() -> None:
     assert status(["b"], base, _suite(b=TaskVerdict.FAIL)) is CanaryStatus.BASELINE_FAILING
     assert status(["a"], base, None) is CanaryStatus.BASELINE_FAILING
     assert status(["a"], base, _suite(a=TaskVerdict.FAIL)) is CanaryStatus.CAUGHT
-    assert status(["a"], base, _suite(a=TaskVerdict.INCOMPLETE)) is CanaryStatus.MISSED
+    assert status(["a"], base, _suite(a=TaskVerdict.INCOMPLETE)) is CanaryStatus.INCOMPLETE
     assert status(["a"], base, _suite(a=TaskVerdict.PASS)) is CanaryStatus.MISSED
 
 

@@ -14,7 +14,9 @@ from adapter_verify.golden.domain.tasks import RunLimits
 from adapter_verify.golden.fakes import RecordingEgressGuard, ScriptedAgent, ScriptedJudge
 from adapter_verify.golden.ports import (
     AgentRun,
+    HarnessFailedError,
     JudgeUnavailableError,
+    ModelUnavailableError,
     ToolCall,
     ToolCaller,
     ToolView,
@@ -222,12 +224,15 @@ class _SlowAgent(ScriptedAgent):
 
 
 class _BrokenAgent(ScriptedAgent):
+    def __init__(self, calls: Sequence[ToolCall], error: Exception | None = None) -> None:
+        super().__init__(calls)
+        self._error = error or RuntimeError("agent crashed")
+
     async def run(
         self, prompt: str, tools: Sequence[ToolView], call_tool: ToolCaller, limits: RunLimits
     ) -> AgentRun:
         del prompt, tools, call_tool, limits
-        msg = "agent crashed"
-        raise RuntimeError(msg)
+        raise self._error
 
 
 async def test_timeout_and_harness_errors(repo: Repo) -> None:
@@ -243,6 +248,46 @@ async def test_timeout_and_harness_errors(repo: Repo) -> None:
     assert run1.detail is not None
     assert "RuntimeError" in run1.detail
     assert "agent crashed" not in run1.detail  # messages can carry data
+
+
+async def test_described_harness_failure_keeps_its_reason(repo: Repo) -> None:
+    broken = _BrokenAgent([], HarnessFailedError("400 INVALID_ARGUMENT"))
+    results = await run(repo, broken, ["order-inflight"])
+    run1 = results.tasks[0].runs[0]
+    assert (run1.error, run1.detail) == (ErrorKind.HARNESS_ERROR, "400 INVALID_ARGUMENT")
+    assert results.tasks[0].verdict is TaskVerdict.FAIL
+
+
+async def test_agent_model_outage_leaves_the_task_incomplete(repo: Repo) -> None:
+    down = _BrokenAgent([], ModelUnavailableError("503 UNAVAILABLE"))
+    results = await run(repo, down, ["order-inflight"])
+    runs = results.tasks[0].runs
+    assert {(r.error, r.detail) for r in runs} == {
+        (ErrorKind.MODEL_UNAVAILABLE, "agent model unavailable: 503 UNAVAILABLE")
+    }
+    assert results.tasks[0].verdict is TaskVerdict.INCOMPLETE
+
+
+async def test_judge_model_outage_leaves_the_task_incomplete(repo: Repo) -> None:
+    repo.put_task(read_task(expect_answer={"rubric": "r"}, runs=1, threshold=1))
+    judge = ScriptedJudge([GOOD, ModelUnavailableError("429 RESOURCE_EXHAUSTED")])
+    results = await run(
+        repo, ScriptedAgent([GET]), ["order-inflight"], judge=judge, calibration=CASES
+    )
+    run1 = results.tasks[0].runs[0]
+    assert run1.error is ErrorKind.MODEL_UNAVAILABLE
+    assert run1.detail == "judge model unavailable: 429 RESOURCE_EXHAUSTED"
+    assert results.tasks[0].verdict is TaskVerdict.INCOMPLETE
+
+
+async def test_judge_outage_during_calibration_leaves_it_uncalibrated(repo: Repo) -> None:
+    repo.put_task(read_task(expect_answer={"rubric": "r"}, runs=1, threshold=1))
+    judge = ScriptedJudge([ModelUnavailableError("503 UNAVAILABLE")])
+    results = await run(
+        repo, ScriptedAgent([GET]), ["order-inflight"], judge=judge, calibration=CASES
+    )
+    assert results.judge_calibrated is False
+    assert results.tasks[0].verdict is TaskVerdict.INCOMPLETE
 
 
 async def test_blocked_egress_fails_the_run(repo: Repo) -> None:
