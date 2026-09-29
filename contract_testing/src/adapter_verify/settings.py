@@ -140,6 +140,9 @@ class _OwnFieldsDotEnv(DotEnvSettingsSource):
         return {k: v for k, v in super().__call__().items() if k in fields}
 
 
+# settings.py -> adapter_verify -> src -> contract_testing -> repository root (see D-031).
+_REPO_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+
 _DEFAULT_JUDGE_MODELS: dict[str, str] = {
     "gemini": "gemini-3.8-flash",
     "nvidia": "moonshotai/kimi-k2.6",
@@ -149,10 +152,11 @@ _DEFAULT_JUDGE_MODELS: dict[str, str] = {
 class GoldenSettings(BaseSettings):
     """Section 6 settings. Environment prefix ``ADAPTER_GOLDEN_``. Paths are repo-relative."""
 
-    # Also read from a git-ignored .env in the working directory (the Gemini key, D-083).
+    # Also read from a git-ignored .env: the repository root's, then the working directory's
+    # (model API keys, D-083, D-095).
     model_config = SettingsConfigDict(
         env_prefix="ADAPTER_GOLDEN_",
-        env_file=".env",
+        env_file=(_REPO_ENV_FILE, ".env"),
         env_file_encoding="utf-8",
         env_ignore_empty=True,  # a blank key in .env means "not set"
         frozen=True,

@@ -12,6 +12,8 @@ Scope and rules come from the engineering brief (LLD §5–9). `DESIGN.md` recor
 
 ## Commands
 
+From `contract_testing/` (the uv workspace and lock are at the repository root):
+
 ```bash
 uv sync
 uv run ruff check . && uv run ruff format --check .
@@ -20,7 +22,7 @@ uv run lint-imports                       # architecture contracts
 uv run pytest --cov                       # unit + property (coverage floor 90%)
 uv run pytest -m integration              # real Postgres via Docker
 uv run adapter-verify golden lint         # golden task files
-uv run adapter-verify golden run --all    # live: needs a model API key in .env (see .env.example)
+uv run adapter-verify golden run --all    # live: needs a model API key in the root .env (see .env.example)
 uv run python scripts/gen_spec.py         # regenerate SPEC tables and docs/schemas
 uv run python scripts/gen_spec.py --check # CI freshness gate
 uv lock --check
@@ -30,7 +32,7 @@ uv lock --check
 
 | Path | Contents |
 | --- | --- |
-| `packages/adapter-kernel/` | Shared kernel draft (pending Romik): frozen, strict Pydantic models and Protocols |
+| `../kernel/` | Shared kernel draft (pending Romik): frozen, strict Pydantic models and Protocols |
 | `src/adapter_verify/common/` | Clock/entropy ports, `FrozenModel`, migration planner and runner |
 | `src/adapter_verify/<component>/` | `domain/` (pure), `ports.py`, `fakes.py`, `adapters/`, services |
 | `src/adapter_verify/composition.py` | The only place ports are wired to adapters |

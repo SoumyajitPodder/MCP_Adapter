@@ -18,6 +18,12 @@ The Gemini free tier (20 requests per model per day) can't finish the §6.11 acc
 
 Verified: unit tests against a fake chat API and httpx's mock transport; a live request with a dummy key passed the egress tripwire and came back `401 Unauthorized`. Not verified: a real run (needs the key).
 
+The owner plans one repository for both halves (orchestrator/server, `lifecycle_controller/`, `contract_testing/`, one `.env`) and asked for our part to move into its own folder now, on `shaswat_changes`, with the kernel kept separate:
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-097 | `kernel/` (was `packages/adapter-kernel/`) and `contract_testing/` (everything else of §5–9, moved with history). The repository root is a virtual uv workspace with both as members and holds the one `uv.lock`, `.python-version`, `.env.example`, CI and CODEOWNERS. Tools run from `contract_testing/`; CI sets that as its working directory (the secrets scan stays at the root). Golden settings read the root `.env`, then the working directory's. | The folder name follows the team layout; it holds all of §5–9, not only §5. The kernel sits beside it because Romik's code will import it too. Lock contents unchanged (paths only). Merging Romik's branches is separate: they share no history with `main`. | approved by owner |
+
 ---
 
 ## 2026-09-28 — Session 21: second live run hit an outage; outages made undecided

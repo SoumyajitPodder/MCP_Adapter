@@ -1,16 +1,18 @@
 # Reviews required for anything that can weaken a safety gate (brief §5.9, §9.2).
 # TODO(owner): add Romik's GitHub handle for the shared kernel once the remote exists.
 
-/baselines/                  @shaswat28
-/contracts/                  @shaswat28
-/sources/                    @shaswat28
-/src/adapter_verify/contract_ci/rules.yaml  @shaswat28
-/policies/                   @shaswat28
-/golden_tasks/               @shaswat28
-/tests/golden_selftest/      @shaswat28
-/catalog/                    @shaswat28
-/credentials.yaml            @shaswat28
-/migrations/                 @shaswat28
-/packages/adapter-kernel/    @shaswat28
-/.github/                    @shaswat28
-/scripts/                    @shaswat28
+/contract_testing/baselines/                  @shaswat28
+/contract_testing/contracts/                  @shaswat28
+/contract_testing/sources/                    @shaswat28
+/contract_testing/src/adapter_verify/contract_ci/rules.yaml  @shaswat28
+/contract_testing/policies/                   @shaswat28
+/contract_testing/golden_tasks/               @shaswat28
+/contract_testing/tests/golden_selftest/      @shaswat28
+/contract_testing/catalog/                    @shaswat28
+/contract_testing/credentials.yaml            @shaswat28
+/contract_testing/migrations/                 @shaswat28
+/contract_testing/scripts/                    @shaswat28
+/kernel/                                      @shaswat28
+/pyproject.toml                               @shaswat28
+/uv.lock                                      @shaswat28
+/.github/                                     @shaswat28

@@ -1,7 +1,7 @@
 # Shared kernel proposal v0: for Romik
 
 **From:** Shaswat (§5–9) · **Status:** draft for discussion. Nothing is frozen until we both agree (brief §0.4).
-**Code:** `packages/adapter-kernel/`. It's pure Pydantic and Protocols, and it has tests. **Rendered reference:** `docs/SPEC.md` §2–3.
+**Code:** `kernel/` at the repository root. It's pure Pydantic and Protocols, and it has tests. **Rendered reference:** `docs/SPEC.md` §2–3.
 
 ## What I need from you
 

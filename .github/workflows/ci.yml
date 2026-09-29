@@ -22,6 +22,12 @@ env:
   GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
   CYCLONEDX_BOM_VERSION: "7.4.0"
 
+# Python components live in their own folders; these jobs check contract_testing/ (§5–9) and
+# the shared kernel it builds on. The uv workspace and lock are at the repository root.
+defaults:
+  run:
+    working-directory: contract_testing
+
 # Every third-party action is pinned by commit SHA; the tag is in the trailing comment.
 jobs:
   lint:
@@ -131,7 +137,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: >-
           uv run python scripts/review_label.py --pr "$PR_NUMBER" --repo "$REPO"
-          --label contract-review-approved --codeowners .github/CODEOWNERS
+          --label contract-review-approved --codeowners ../.github/CODEOWNERS
       # Report goes to the job summary and to a retained artifact that records the approver.
       - name: Contract check
         env:
@@ -154,7 +160,7 @@ jobs:
         if: always()
         with:
           name: contract-report
-          path: contract-report.md
+          path: contract_testing/contract-report.md
           retention-days: 90
 
   lockfile:
@@ -180,6 +186,9 @@ jobs:
 
   secrets:
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: .  # the whole repository
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -231,4 +240,4 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom
-          path: sbom.cdx.json
+          path: contract_testing/sbom.cdx.json

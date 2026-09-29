@@ -1,0 +1,180 @@
+[project]
+name = "adapter-verify"
+version = "0.0.1"
+description = "MCP adapter execution and verification layer (LLD sections 5-9)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "adapter-kernel",
+    "asyncpg>=0.31.0",
+    "click>=8.5.0",
+    "google-genai>=1.0",
+    "httpx>=0.28.1",
+    "opentelemetry-api>=1.44.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+    "opentelemetry-sdk>=1.44.0",
+    "pydantic-settings>=2.15.0",
+    "pyjwt[crypto]>=2.15.0",
+    "pyyaml>=6.0.3",
+    "rfc8785>=0.1.4",
+]
+
+[project.scripts]
+adapter-verify = "adapter_verify.cli.main:cli"
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+
+[tool.uv.sources]
+adapter-kernel = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "asyncpg-stubs>=0.31.3",
+    "hypothesis>=6.168.0",
+    "import-linter>=2.15",
+    "mypy>=2.3.1",
+    "pip-audit>=2.10.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.8",
+    "testcontainers[postgres]>=4.15.0",
+    "types-pyyaml>=6.0.12.20260906",
+]
+
+# --------------------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "../kernel/src", "tests", "scripts"]
+
+[tool.ruff.format]
+# Markdown is excluded: DESIGN.md is an append-only log and its snippets are records.
+exclude = ["*.md"]
+
+[tool.ruff.lint]
+# Explicit list, not ALL: new ruff releases must not change CI results silently (DESIGN.md M0 §7).
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "RUF", "S", "ASYNC", "PT", "TRY", "BLE", "T20",
+    "G", "LOG", "DTZ", "N", "ANN", "ARG", "RET", "PIE", "PERF", "C4", "FBT", "ERA", "TID", "PL",
+]
+ignore = [
+    "TRY003",  # long messages in exception constructors are fine for internal errors
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",     # assert is the point of a test
+    "PLR2004",  # magic values are fine in assertions
+    "ANN401",
+    "S105",     # literal test values are not credentials
+    "S106",
+    "PLR0913",  # parametrized tests take one argument per column
+    "PLR0917",
+    "FBT001",   # parametrized boolean columns
+]
+"scripts/**" = ["T20"]  # scripts may print to the console
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+# --------------------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = ["src", "../kernel/src"]
+files = ["src", "../kernel/src", "tests", "scripts"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["adapter_kernel.*"]
+disallow_any_explicit = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# --------------------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "-m", "not integration and not concurrency",
+]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error"]
+markers = [
+    "unit: pure domain tests, no I/O",
+    "property: hypothesis property tests",
+    "integration: needs real services via containers",
+    "concurrency: race tests against real services",
+    "golden_selftest: judge calibration and mutation canaries",
+    "sentinel_exempt: skip the sentinel sink scan (state why in the test)",
+]
+
+# --------------------------------------------------------------------------- coverage
+[tool.coverage.run]
+branch = true
+source = ["adapter_kernel", "adapter_verify"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "class .*\\(Protocol\\):",
+    "\\.\\.\\.$",
+]
+
+# --------------------------------------------------------------------------- import-linter
+[tool.importlinter]
+root_packages = ["adapter_kernel", "adapter_verify"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Kernel never depends on adapter_verify"
+type = "forbidden"
+source_modules = ["adapter_kernel"]
+forbidden_modules = ["adapter_verify"]
+
+[[tool.importlinter.contracts]]
+name = "Kernel performs no I/O"
+type = "forbidden"
+source_modules = ["adapter_kernel"]
+forbidden_modules = ["socket", "asyncio", "os", "subprocess", "http", "urllib"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Component domains are pure"
+type = "forbidden"
+source_modules = ["adapter_verify.*.domain"]
+forbidden_modules = [
+    "adapter_verify.*.adapters",
+    "adapter_verify.composition",
+    "socket", "asyncio", "os", "subprocess", "http", "urllib", "secrets", "time",
+    "opentelemetry", "asyncpg", "click",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Only the composition root wires adapters"
+type = "forbidden"
+source_modules = [
+    "adapter_verify.*.domain",
+    "adapter_verify.*.ports",
+    "adapter_verify.*.fakes",
+    "adapter_verify.*.service",
+    "adapter_verify.*.audit_service",
+    "adapter_verify.*.buffered_sink",
+]
+forbidden_modules = ["adapter_verify.*.adapters"]

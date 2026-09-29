@@ -345,7 +345,7 @@ See the gate bullet above and §11 (`contract check`).
     - `gemini` (`GeminiAgent`): the model's own turns go back unchanged (thought signatures).
     - Sampling stays at the model default (D-085).
     - For state-changing tools it sends a stable idempotency key per distinct call, as an orchestrator would.
-  - Without the provider's key (`ADAPTER_GOLDEN_NVIDIA_API_KEY` or `ADAPTER_GOLDEN_GEMINI_API_KEY`, read from the environment or a git-ignored `.env`; see `.env.example`), `golden run` exits 3. `ScriptedAgent` drives the tests.
+  - Without the provider's key (`ADAPTER_GOLDEN_NVIDIA_API_KEY` or `ADAPTER_GOLDEN_GEMINI_API_KEY`, read from the environment, then a git-ignored `.env` at the repository root or in the working directory; see `.env.example`), `golden run` exits 3. `ScriptedAgent` drives the tests.
   - Keys reach only the model adapters, never the `SecretManager` port. Runs may reach only the API host of each provider with a key, plus `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS`.
   - Free tiers may use submitted content, so golden inputs must stay synthetic.
 - **Layers, in order, first failure wins:**
