@@ -12,7 +12,8 @@ import { makeAdapter, deriveMapping } from './core/adapters.js';
 import {
   runBatch, runPipeline, promote, retire, standUp, operatorMap,
   approve, reject, liveCall, health, deprecateContract,
-  withChoices, evalCandidate, injectCanaryFault, activateScenario
+  withChoices, evalCandidate, injectCanaryFault, activateScenario,
+  queueDrift, cancelQueuedDrift
 } from './core/lifecycle.js';
 import { render } from './ui/render.js';
 import { bindEvents } from './ui/events.js';
@@ -51,7 +52,8 @@ window.__core = {
   CONTRACTS: () => CONTRACTS,
   runBatch, runPipeline, inject, approve, reject, standUp, operatorMap,
   promote, retire, liveCall, health, primary, withChoices, evalCandidate,
-  deprecateContract, injectCanaryFault, activateScenario
+  deprecateContract, injectCanaryFault, activateScenario,
+  queueDrift, cancelQueuedDrift
 };
 
 bindEvents({ onReset: initApp });

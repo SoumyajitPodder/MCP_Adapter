@@ -45,7 +45,11 @@ export function classify(b, a, det) {
     added.forEach(ad => { if (used.has(ad.path)) return; const sc = scoreCandidate(f, ad.path, recs); if (!best || sc.score > best.sc.score) best = { ad, sc }; });
     if (best && norm(best.ad.path) === norm(r.path)) {
       used.add(best.ad.path); ctx.alias[r.path] = best.ad.path;
-      items.push({ event: r, cls: 'COMPATIBLE', tier: 'A', alias: { from: r.path, to: best.ad.path }, reason: `case-style rename, aliased "${r.path}" → "${best.ad.path}"` });
+      items.push({
+        event: r, cls: 'COMPATIBLE', tier: 'A',
+        alias: { from: r.path, to: best.ad.path, score: best.sc.score, name: best.sc.name, type: best.sc.type, value: best.sc.value },
+        reason: `case-style rename, aliased "${r.path}" → "${best.ad.path}"`
+      });
     } else if (best && best.sc.score >= 0.6) {
       used.add(best.ad.path);
       items.push({

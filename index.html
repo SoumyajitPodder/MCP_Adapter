@@ -13,13 +13,26 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-scroll">
       <div class="card"><h2>Scenarios <small>multi-day sequences</small></h2><div id="scenarios"></div></div>
+      <div class="card"><h2>Drift queue <small id="qcount"></small></h2><div id="driftQueue"></div></div>
       <div class="card"><h2>Bindings <small id="bcount"></small></h2><div id="bindings"></div></div>
-      <div class="card"><h2>Admin: drift input <small>manual injectors</small></h2><div id="sim"></div></div>
+      <div class="card"><h2>Admin: drift input <small>queued, lands at next batch</small></h2><div id="sim"></div></div>
     </div>
   </aside>
 
   <button class="sidebar-pull" id="sidebarPull" data-act="togglesidebar" aria-label="Show or hide the sidebar" title="Hide sidebar">
     <span id="pullArrow">‹</span>
+  </button>
+
+  <aside class="rightpanel" id="rightpanel">
+    <div class="rightpanel-scroll">
+      <div class="card" id="reviewCard"><h2>Reviews <small id="rcount"></small></h2><div id="reviewPanelBody"></div></div>
+      <div class="card"><h2>Auto-fixed drift <small>caught and mapped without a person</small></h2><div id="autoFixBody"></div></div>
+    </div>
+  </aside>
+
+  <button class="rightpanel-pull" id="rightPull" data-act="toggleright" aria-label="Show or hide reviews and auto-fixed drift" title="Hide reviews">
+    <span id="rightArrow">›</span>
+    <span class="pull-badge" id="rightBadge" hidden></span>
   </button>
 
   <div class="mainarea">
@@ -54,13 +67,11 @@
       <section class="workarea">
         <div class="tabbar">
           <button class="mtab" id="mtab-pipeline" data-act="maintab" data-arg="pipeline">Pipeline</button>
-          <button class="mtab" id="mtab-reviews" data-act="maintab" data-arg="reviews">Reviews <span class="badge" id="reviewBadge" hidden></span></button>
           <button class="mtab" id="mtab-mapping" data-act="maintab" data-arg="mapping">Mapping</button>
           <button class="mtab" id="mtab-audit" data-act="maintab" data-arg="audit">Audit Log</button>
         </div>
 
         <div class="tabpanel" id="tabPipeline"></div>
-        <div class="tabpanel" id="tabReviews" hidden></div>
         <div class="tabpanel" id="tabMapping" hidden></div>
         <div class="tabpanel" id="tabAudit" hidden>
           <div class="card">

@@ -23,6 +23,18 @@ export const SCENARIOS = [
     ]
   },
   {
+    id: 'gradual_housekeeping',
+    name: 'Vendor housekeeping, then a version retirement',
+    bindingId: 'order.get',
+    description: 'Over a couple of weeks the vendor tidies up: a new field, a timestamp format change, a renamed status field. Then the old API version is finally retired.',
+    steps: [
+      { offset: 0, injectId: 'add_optional', note: 'a new optional field appears' },
+      { offset: 2, injectId: 'date_format', note: 'timestamps switch format' },
+      { offset: 4, injectId: 'rename_status', note: 'the status field is renamed' },
+      { offset: 6, injectId: 'sunset', note: 'v2 sunset announced, v3 released' }
+    ]
+  },
+  {
     id: 'overnight_break',
     name: 'Breaking change overnight',
     bindingId: 'service.get',

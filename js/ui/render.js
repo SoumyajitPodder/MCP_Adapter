@@ -3,10 +3,12 @@
 // state and turns it into markup. Everything the person can click is wired
 // up separately, in events.js.
 //
-// Layout: a toggleable sidebar (bindings, manual drift injectors,
-// preselected scenarios) next to a tabbed workarea (Pipeline, Reviews,
-// Mapping, Audit Log). The stats bar and batch overview sit above both,
-// since they summarize across every binding rather than belonging to one.
+// Layout: a toggleable left sidebar (scenarios, the drift queue, bindings,
+// manual drift injectors), a toggleable right panel (reviews that need a
+// person, and drift the controller caught and fixed on its own), and a
+// tabbed workarea between them (Pipeline, Mapping, Audit Log). The stats
+// bar and batch overview sit above the workarea, since they summarize
+// across every binding rather than belonging to one.
 
 import { $, esc } from './dom.js';
 import { state, CONTRACTS } from '../state.js';
@@ -40,11 +42,16 @@ function confBlock(rn) {
 
 // Reveals the sanity pipeline's six stages one at a time so a viewer can
 // follow the sequence, instead of the whole pipeline appearing at once.
+// Only the pipeline tab is redrawn on each tick. Redrawing the whole page
+// here would rebuild every sidebar button several times a second, and a
+// click that starts on a button which then gets replaced before the mouse
+// comes back up is silently dropped — that made the sidebar feel dead for
+// a second after every batch.
 export function animate() {
   clearInterval(animTimer);
   if (reduce) { state.reveal = 6; render(); return; }
   state.reveal = 0; render();
-  animTimer = setInterval(() => { state.reveal++; if (state.reveal >= 6) clearInterval(animTimer); render(); }, 170);
+  animTimer = setInterval(() => { state.reveal++; if (state.reveal >= 6) clearInterval(animTimer); renderPipelineTab(); }, 170);
 }
 
 function fmtClock(mins) {
@@ -125,28 +132,46 @@ function renderBindings() {
 
 function renderSim() {
   const b = selB();
-  $('#sim').innerHTML = `<p class="tiny" style="margin-bottom:8px">Changes apply to <b>${b.tool}</b> (${b.kind}). Inject one, then run a batch.</p><div class="sim-grid">` +
-    INJ.filter(i => i.kinds.includes(b.kind)).map(i =>
-      `<button class="btn sm ${i.custom ? 'warnish' : ''}" data-act="inject" data-arg="${i.id}" ${i.custom && b.upstream.sunsetDay != null ? 'disabled' : ''}>${i.label}</button>`
-    ).join('') + `</div>`;
+  const pending = id => state.scenarioQueue.some(q => q.bindingId === b.id && q.injectId === id);
+  const versionPending = state.scenarioQueue.some(q => q.bindingId === b.id && INJ.find(i => i.id === q.injectId && i.custom));
+  $('#sim').innerHTML = `<p class="tiny" style="margin-bottom:8px">Applies to <b>${b.tool}</b> (${b.kind}). Each click adds to the drift queue above; the change lands at the next batch run, and can be cancelled until then.</p><div class="sim-grid">` +
+    INJ.filter(i => i.kinds.includes(b.kind)).map(i => {
+      const off = pending(i.id) || (i.custom && (b.upstream.sunsetDay != null || versionPending));
+      return `<button class="btn sm ${i.custom ? 'warnish' : ''}" data-act="inject" data-arg="${i.id}" ${off ? 'disabled' : ''}>${i.label}</button>`;
+    }).join('') + `</div>`;
+}
+
+function isBindingBusy(bindingId) {
+  return SCENARIOS.some(s => state.activeScenarios.includes(s.id) && s.bindingId === bindingId);
 }
 
 function renderScenarios() {
-  const upcoming = [...state.scenarioQueue].sort((a, b) => a.day - b.day);
-  const cards = SCENARIOS.map(sc => {
-    const active = state.activeScenarios.includes(sc.id);
+  $('#scenarios').innerHTML = SCENARIOS.map(sc => {
+    const mine = state.activeScenarios.includes(sc.id);
+    const busy = isBindingBusy(sc.bindingId);
+    const label = mine ? 'In the queue' : busy ? 'Binding busy' : 'Add scenario';
+    const why = !mine && busy ? ' title="Another scenario is already queued for this binding"' : '';
     return `<div class="scenario">
       <div class="scenname">${esc(sc.name)}</div>
       <div class="scendesc">${esc(sc.description)}</div>
       <div class="tiny">on <b>${esc(sc.bindingId)}</b> · ${sc.steps.length} scheduled event${sc.steps.length === 1 ? '' : 's'}</div>
-      <button class="btn sm ${active ? '' : 'primary'}" data-act="scenario" data-arg="${sc.id}" ${active ? 'disabled' : ''}>${active ? 'Running…' : 'Run scenario'}</button>
+      <button class="btn sm ${busy ? '' : 'primary'}" data-act="scenario" data-arg="${sc.id}" ${busy ? 'disabled' : ''}${why}>${label}</button>
     </div>`;
   }).join('');
-  const upcomingHtml = upcoming.length
-    ? `<div class="sect" style="margin-top:10px">Upcoming</div><ul class="upqueue">${upcoming.slice(0, 6).map(u =>
-        `<li><b>day ${u.day}</b> · ${esc(u.bindingId)} — ${esc(u.note)}</li>`).join('')}</ul>`
-    : '';
-  $('#scenarios').innerHTML = cards + upcomingHtml;
+}
+
+// Everything that is about to happen to an upstream — manual injections
+// and scenario steps alike — with a way to call any of it off.
+function renderDriftQueue() {
+  const q = [...state.scenarioQueue].sort((a, b) => a.day - b.day);
+  $('#qcount').textContent = q.length ? `${q.length} pending` : '';
+  $('#driftQueue').innerHTML = q.length
+    ? `<ul class="upqueue">${q.map(u => `<li>
+        <div><b>${u.day <= state.day ? 'next batch' : 'day ' + u.day}</b> · ${esc(u.bindingId)}</div>
+        <div class="tiny">${esc(u.note)} <span class="qsrc">${esc(u.scenarioName)}</span></div>
+        <button class="btn sm cancelq" data-act="cancelqueue" data-arg="${u.id}">Cancel</button>
+      </li>`).join('')}</ul>`
+    : '<p class="empty">Nothing queued. Add a scenario above, or queue a manual injection below.</p>';
 }
 
 /* ============================ pipeline tab ============================ */
@@ -239,33 +264,57 @@ function renderMappingTab() {
     <div class="card"><h2>Active mapping <small>${short(a)}</small></h2><pre>${esc(yaml)}</pre></div>`;
 }
 
-/* ============================= reviews tab ============================= */
+/* ======================= right panel: reviews + auto-fixed ======================= */
 
-function renderReviewsTab() {
-  const open = state.reviews.filter(r => r.status === 'open').length;
-  const badge = $('#reviewBadge');
-  if (badge) badge.textContent = open ? String(open) : '';
-  if (badge) badge.hidden = !open;
+function reviewCard(r) {
+  const b = state.bindings.find(x => x.id === r.bindingId), a = b.adapters.find(x => x.id === r.adapterId);
+  const live = r.status === 'open' ? evalCandidate(b, a, withChoices(r)) : r.eval;
+  const sb = live.sandbox, sh = live.shadow, allChosen = r.choices.every(c => c.selected);
+  const gateOk = r.status === 'open' && allChosen && sb.valid === sb.total && sh.diffs.length === 0;
+  return `<div class="rev"><header><b>${r.id} ${r.bindingId}</b><span class="pill ${r.status}">${r.status}</span></header>
+    <div class="tiny">opened on day ${r.day} by ${r.src}</div>
+    <ul>${r.events.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
+    <div class="tiny"><b>Candidate mapping changes</b></div>
+    <ul>${r.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+    ${(r.renames && r.renames.length) ? r.renames.map(rn => confBlock(rn)).join('') : ''}
+    ${r.choices.map((c, i) => `<div class="kv"><span>${esc(c.target)}: "${esc(c.value)}" means</span><select data-act="choose" data-rv="${r.id}" data-i="${i}"><option value="">choose…</option>${c.options.map(o => `<option ${c.selected === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`).join('')}
+    <div class="kv"><span>Sandbox replay</span><b>${sb.valid}/${sb.total} valid</b></div>
+    <div class="kv"><span>Shadow vs last-known-good</span><b>${sh.identical}/${sh.compared} identical${sh.skipped ? `, ${sh.skipped} new` : ''}</b></div>
+    <div class="row"><button class="btn primary sm" data-act="approve" data-arg="${r.id}" ${gateOk ? '' : 'disabled'}>Approve</button><button class="btn sm" data-act="reject" data-arg="${r.id}">Reject</button></div>
+    <span class="gate">${gateOk ? 'gate open: sandbox all valid, no shadow differences' : 'approval needs every choice made, a fully valid sandbox, and zero shadow differences'}</span>
+  </div>`;
+}
 
-  if (!state.reviews.length) { $('#tabReviews').innerHTML = '<div class="card"><p class="empty">Nothing to review. Inject a rename, a new status value, or a date format change, then run a batch.</p></div>'; return; }
-  $('#tabReviews').innerHTML = '<div class="card">' + state.reviews.slice(0, 10).map(r => {
-    const b = state.bindings.find(x => x.id === r.bindingId), a = b.adapters.find(x => x.id === r.adapterId);
-    const live = r.status === 'open' ? evalCandidate(b, a, withChoices(r)) : r.eval;
-    const sb = live.sandbox, sh = live.shadow, allChosen = r.choices.every(c => c.selected);
-    const gateOk = r.status === 'open' && allChosen && sb.valid === sb.total && sh.diffs.length === 0;
-    return `<div class="rev"><header><b>${r.id} ${r.bindingId}</b><span class="pill ${r.status}">${r.status}</span></header>
-      <div class="tiny">opened on day ${r.day} by ${r.src}</div>
-      <ul>${r.events.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
-      <div class="tiny"><b>Candidate mapping changes</b></div>
-      <ul>${r.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
-      ${(r.renames && r.renames.length) ? r.renames.map(rn => confBlock(rn)).join('') : ''}
-      ${r.choices.map((c, i) => `<div class="kv"><span>${esc(c.target)}: "${esc(c.value)}" means</span>${r.status === 'open' ? `<select data-act="choose" data-rv="${r.id}" data-i="${i}"><option value="">choose…</option>${c.options.map(o => `<option ${c.selected === o ? 'selected' : ''}>${o}</option>`).join('')}</select>` : `<b>${c.selected || 'n/a'}</b>`}</div>`).join('')}
-      <div class="kv"><span>Sandbox replay</span><b>${sb.valid}/${sb.total} valid</b></div>
-      <div class="kv"><span>Shadow vs last-known-good</span><b>${sh.identical}/${sh.compared} identical${sh.skipped ? `, ${sh.skipped} new` : ''}</b></div>
-      ${r.status === 'open' ? `<div class="row"><button class="btn primary sm" data-act="approve" data-arg="${r.id}" ${gateOk ? '' : 'disabled'}>Approve</button><button class="btn sm" data-act="reject" data-arg="${r.id}">Reject</button></div>
-      <span class="gate">${gateOk ? 'gate open: sandbox all valid, no shadow differences' : 'approval needs every choice made, a fully valid sandbox, and zero shadow differences'}</span>` : ''}
-    </div>`;
-  }).join('') + '</div>';
+// Open reviews are shown in full, since they need a decision. Resolved
+// ones shrink to a single line so they don't crowd out the ones that matter.
+function renderReviewPanel() {
+  const open = state.reviews.filter(r => r.status === 'open');
+  const done = state.reviews.filter(r => r.status !== 'open').slice(0, 5);
+  $('#rcount').textContent = open.length ? `${open.length} need${open.length === 1 ? 's' : ''} a decision` : '';
+  $('#reviewCard').classList.toggle('urgent', open.length > 0);
+  if (!state.reviews.length) {
+    $('#reviewPanelBody').innerHTML = '<p class="empty">Nothing needs a decision. When the controller meets a change it cannot safely settle on its own, it lands here.</p>';
+    return;
+  }
+  $('#reviewPanelBody').innerHTML =
+    (open.length ? open.map(reviewCard).join('') : '<p class="empty">Nothing waiting on you.</p>') +
+    (done.length ? `<div class="sect">Resolved</div>` + done.map(r =>
+      `<div class="revdone"><span class="pill ${r.status}">${r.status}</span> <b>${r.id}</b> ${esc(r.bindingId)} <span class="tiny">day ${r.day}</span></div>`).join('') : '');
+}
+
+// The other half of the story: drift the controller noticed and settled
+// by itself. Renames show the same name/type/value-shape confidence
+// breakdown a reviewer would see; everything else is a fixed rule with no
+// guesswork involved, and says so.
+function renderAutoFixPanel() {
+  const fixed = state.log.filter(l => l.action === 'DRIFT_ABSORBED').slice(0, 8);
+  $('#autoFixBody').innerHTML = fixed.length
+    ? fixed.map(l => `<div class="autofix">
+        <div class="tiny"><b>day ${l.day}</b> · ${esc(l.binding)}</div>
+        <div>${esc(l.msg)}</div>
+        ${l.confidence ? confBlock(l.confidence) : '<div class="tiny rulenote">Fixed rule, no inference involved — nothing to be unsure about.</div>'}
+      </div>`).join('')
+    : '<p class="empty">No drift absorbed yet. Queue a rename or an envelope change and run a batch to watch the controller handle it on its own.</p>';
 }
 
 /* ============================= audit log tab ============================= */
@@ -325,7 +374,7 @@ function renderAuditFilterOptions() {
 
 /* ================================ tabs ================================ */
 
-const MAIN_TABS = ['pipeline', 'reviews', 'mapping', 'audit'];
+const MAIN_TABS = ['pipeline', 'mapping', 'audit'];
 
 function renderTabBar() {
   MAIN_TABS.forEach(t => {
@@ -346,18 +395,38 @@ function renderSidebarToggle() {
   if (pull) pull.title = state.sidebarOpen ? 'Hide sidebar' : 'Show sidebar';
 }
 
+// The right panel is where a person is needed, so its handle does more
+// than the left one: it carries a count, and pulses while anything is
+// waiting — which stays visible even when the panel is tucked away.
+function renderRightToggle() {
+  document.body.classList.toggle('rightpanel-collapsed', !state.rightOpen);
+  const open = state.reviews.filter(r => r.status === 'open').length;
+  const arrow = $('#rightArrow');
+  if (arrow) arrow.textContent = state.rightOpen ? '›' : '‹';
+  const pull = $('#rightPull');
+  if (pull) {
+    pull.title = state.rightOpen ? 'Hide reviews' : (open ? `Show reviews — ${open} waiting` : 'Show reviews');
+    pull.classList.toggle('alert', open > 0);
+  }
+  const badge = $('#rightBadge');
+  if (badge) { badge.textContent = open ? String(open) : ''; badge.hidden = !open; }
+}
+
 export function render() {
   renderClock();
   renderStats();
   renderBatchOverview();
   renderSidebarToggle();
+  renderRightToggle();
+  renderScenarios();
+  renderDriftQueue();
   renderBindings();
   renderSim();
-  renderScenarios();
   renderTabBar();
   renderPipelineTab();
-  renderReviewsTab();
   renderMappingTab();
+  renderReviewPanel();
+  renderAutoFixPanel();
   renderAuditFilterOptions();
   renderAuditTab();
 }

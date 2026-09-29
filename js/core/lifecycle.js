@@ -6,7 +6,7 @@
 // in the Phase 1 LLD.
 
 import { state, CONTRACTS, log, logDrift } from '../state.js';
-import { fetchUpstream, inject } from '../simulation/upstreams.js';
+import { fetchUpstream, inject, INJ } from '../simulation/upstreams.js';
 import { analyzeRaw, recordsFor, detect } from './detector.js';
 import { scoreCandidate, classify } from './classifier.js';
 import { translate, validateCanon, compareLKG } from './validator.js';
@@ -134,6 +134,7 @@ export function assess(b, a, src) {
       };
       review.eval = evalCandidate(b, a, withChoices(review));
       state.reviews.unshift(review); state.metrics.reviews++;
+      state.rightOpen = true; // a review needs a person: make sure the panel that shows it is open
       log(b, 'REVIEW_REQUIRED', `review ${review.id} opened with a candidate mapping (sandbox ${review.eval.sandbox.valid}/${review.eval.sandbox.total})`, src, { actor: 'system', action: 'REVIEW_OPENED' });
     }
   }
@@ -279,34 +280,69 @@ export function health(b) {
   return p && p.lastRun ? p.lastRun.readiness : 'PENDING';
 }
 
-// Activates a preselected scenario: queues each of its upstream events at
-// (activation day + offset). Firing itself happens inside runBatch, so
-// events land on schedule whether the day is advanced manually or by
-// auto-run. A scenario already running is left alone rather than
-// re-queued on top of itself.
+// The drift queue. Both manual injections and scenario steps go through
+// it, so there is one place to see what is about to happen to an upstream
+// and one place to call it off. Each entry lands at the start of a batch
+// run once its day has arrived: manual entries are due immediately (so
+// they apply at the next batch run), scenario entries are due on their
+// scheduled day.
+function enqueueDrift(entry) {
+  state.qseq++;
+  state.scenarioQueue.push(Object.assign({ id: 'Q' + state.qseq }, entry));
+}
+
+// Queues a single manual injection from the admin panel. Repeats of the
+// same injection on the same binding are ignored while one is pending.
+export function queueDrift(b, injectId) {
+  const inj = INJ.find(x => x.id === injectId);
+  if (!inj) return;
+  if (state.scenarioQueue.some(q => q.bindingId === b.id && q.injectId === injectId)) return;
+  enqueueDrift({ day: state.day, bindingId: b.id, injectId, note: inj.label, scenarioId: null, scenarioName: 'Manual' });
+  log(b, 'SYSTEM', `queued drift: ${inj.label} — lands at the next batch run`, 'sim', { actor: 'operator', action: 'SIMULATION' });
+}
+
+// Adds a preselected scenario: queues each of its upstream events at
+// (today + offset). A scenario already queued is left alone, and so is a
+// scenario for a binding another scenario is already working on — two
+// scripted stories on one upstream would just tangle together.
 export function activateScenario(scenarioId) {
   const sc = SCENARIOS.find(x => x.id === scenarioId);
   if (!sc || state.activeScenarios.includes(scenarioId)) return;
+  const busy = SCENARIOS.some(s => state.activeScenarios.includes(s.id) && s.bindingId === sc.bindingId);
+  if (busy) return;
   state.activeScenarios.push(scenarioId);
   sc.steps.forEach(step => {
-    state.scenarioQueue.push({
+    enqueueDrift({
       day: state.day + step.offset, bindingId: sc.bindingId, injectId: step.injectId,
       note: step.note, scenarioId, scenarioName: sc.name
     });
   });
-  log(null, 'SYSTEM', `scenario "${sc.name}" activated on ${sc.bindingId} — ${sc.steps.length} event${sc.steps.length === 1 ? '' : 's'} queued`, 'sim', { actor: 'simulator', action: 'SIMULATION' });
+  log(null, 'SYSTEM', `scenario "${sc.name}" added on ${sc.bindingId} — ${sc.steps.length} event${sc.steps.length === 1 ? '' : 's'} queued`, 'sim', { actor: 'operator', action: 'SIMULATION' });
 }
 
-// Fires any scenario steps whose day has arrived, then drops finished
-// scenarios from the active list so they could be run again later.
-function fireScenarioSteps() {
+// Calls off one queued injection before it lands. If it was the last
+// pending step of a scenario, the scenario frees up to be added again.
+export function cancelQueuedDrift(queueId) {
+  const item = state.scenarioQueue.find(q => q.id === queueId);
+  if (!item) return;
+  state.scenarioQueue = state.scenarioQueue.filter(q => q.id !== queueId);
+  if (item.scenarioId && !state.scenarioQueue.some(q => q.scenarioId === item.scenarioId)) {
+    state.activeScenarios = state.activeScenarios.filter(id => id !== item.scenarioId);
+  }
+  const b = state.bindings.find(x => x.id === item.bindingId) || null;
+  log(b, 'SYSTEM', `cancelled queued drift: ${item.note} (${item.scenarioName}, was due day ${item.day})`, 'sim', { actor: 'operator', action: 'SIMULATION_CANCELLED' });
+}
+
+// Lands every queued injection whose day has arrived, then frees any
+// scenario whose steps have all fired.
+function fireQueuedDrift() {
   const due = state.scenarioQueue.filter(s => s.day <= state.day);
   if (!due.length) return;
   state.scenarioQueue = state.scenarioQueue.filter(s => s.day > state.day);
   due.forEach(s => {
     const b = state.bindings.find(x => x.id === s.bindingId);
     if (b) inject(b, s.injectId);
-    if (!state.scenarioQueue.some(q => q.scenarioId === s.scenarioId)) {
+    if (s.scenarioId && !state.scenarioQueue.some(q => q.scenarioId === s.scenarioId)) {
       state.activeScenarios = state.activeScenarios.filter(id => id !== s.scenarioId);
     }
   });
@@ -318,7 +354,7 @@ function fireScenarioSteps() {
 // "batch run overview").
 export function runBatch(advance) {
   if (advance) { state.day++; state.clockMinutes = 0; }
-  fireScenarioSteps();
+  fireQueuedDrift();
   Object.entries(CONTRACTS).forEach(([t, c]) => {
     if (c.state === 'DEPRECATED' && c.sunsetDay != null && state.day >= c.sunsetDay) {
       c.state = 'SUNSET';

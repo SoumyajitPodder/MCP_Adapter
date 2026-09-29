@@ -5,15 +5,16 @@
 
 import { $ } from './dom.js';
 import { state } from '../state.js';
-import { inject } from '../simulation/upstreams.js';
 import {
   runBatch, liveCall, standUp, operatorMap,
   promote, retire, deprecateContract, approve, reject, injectCanaryFault,
-  activateScenario
+  activateScenario, queueDrift, cancelQueuedDrift
 } from '../core/lifecycle.js';
 import { render, animate, renderClock, renderAuditTab } from './render.js';
 
 let autoTimer = null;
+
+const narrow = () => window.innerWidth <= 900;
 
 // The clock ticks every 100ms of real time; how many simulated minutes
 // that represents depends on the selected speed. At 1x, a full simulated
@@ -75,7 +76,7 @@ export function bindEvents({ onReset }) {
       case 'sel': state.sel = arg; state.selAdapter = null; state.selStage = null; state.reveal = 6; render(); break;
       case 'seladapter': state.selAdapter = arg; state.selStage = null; render(); break;
       case 'stage': state.selStage = +arg; render(); break;
-      case 'inject': inject(b, arg); render(); break;
+      case 'inject': queueDrift(b, arg); render(); break;
       case 'call': state.calls[b.id] = liveCall(b); render(); break;
       case 'standup': standUp(b, arg); state.selStage = null; animate(); break;
       case 'opmap': operatorMap(b, arg); state.selStage = null; animate(); break;
@@ -87,7 +88,17 @@ export function bindEvents({ onReset }) {
       case 'breakcanary': injectCanaryFault(b, b.adapters.find(x => x.id === arg)); render(); break;
       case 'viewbatch': state.selBatch = +arg; render(); break;
       case 'scenario': activateScenario(arg); render(); break;
-      case 'togglesidebar': state.sidebarOpen = !state.sidebarOpen; render(); break;
+      case 'cancelqueue': cancelQueuedDrift(arg); render(); break;
+      case 'togglesidebar':
+        state.sidebarOpen = !state.sidebarOpen;
+        if (state.sidebarOpen && narrow()) state.rightOpen = false; // on a phone the two panels would cover each other
+        render();
+        break;
+      case 'toggleright':
+        state.rightOpen = !state.rightOpen;
+        if (state.rightOpen && narrow()) state.sidebarOpen = false;
+        render();
+        break;
       case 'maintab': state.mainTab = arg; render(); break;
     }
   });
