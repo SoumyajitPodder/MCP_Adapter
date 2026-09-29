@@ -1,5 +1,14 @@
 {
   "$defs": {
+    "ModelProvider": {
+      "description": "Model API behind the reference agent or the judge (D-083, D-095).",
+      "enum": [
+        "gemini",
+        "nvidia"
+      ],
+      "title": "ModelProvider",
+      "type": "string"
+    },
     "RunLimits": {
       "additionalProperties": false,
       "description": "Per-run limits (§6.3). Crossing any is BUDGET_EXCEEDED, never retried.",
@@ -70,6 +79,11 @@
       "default": null,
       "description": "Pinned model ID, recorded with results.",
       "title": "Model"
+    },
+    "provider": {
+      "$ref": "#/$defs/ModelProvider",
+      "default": "gemini",
+      "description": "Model API the reference harness calls."
     },
     "system_prompt": {
       "anyOf": [

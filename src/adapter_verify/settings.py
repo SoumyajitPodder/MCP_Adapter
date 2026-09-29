@@ -4,7 +4,7 @@ Invalid or missing configuration raises at load time; the process must not start
 """
 
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import (
@@ -140,6 +140,12 @@ class _OwnFieldsDotEnv(DotEnvSettingsSource):
         return {k: v for k, v in super().__call__().items() if k in fields}
 
 
+_DEFAULT_JUDGE_MODELS: dict[str, str] = {
+    "gemini": "gemini-3.8-flash",
+    "nvidia": "moonshotai/kimi-k2.6",
+}
+
+
 class GoldenSettings(BaseSettings):
     """Section 6 settings. Environment prefix ``ADAPTER_GOLDEN_``. Paths are repo-relative."""
 
@@ -173,9 +179,27 @@ class GoldenSettings(BaseSettings):
     gemini_api_key: SecretStr | None = Field(
         default=None, description="Gemini API key for the reference agent and judge. Secret."
     )
-    judge_model: str = Field(
-        default="gemini-3.8-flash", min_length=1, description="Pinned judge model (M5b-Q2)."
+    nvidia_api_key: SecretStr | None = Field(
+        default=None, description="NVIDIA API catalog key for the agent and judge. Secret."
     )
+    nvidia_base_url: str = Field(
+        default="https://integrate.api.nvidia.com/v1",
+        pattern=r"^https://",
+        description="NVIDIA OpenAI-compatible API base URL.",
+    )
+    judge_provider: Literal["gemini", "nvidia"] = Field(
+        default="nvidia", description="Model API of the answer judge (D-095)."
+    )
+    judge_model: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Pinned judge model. Default per provider: gemini-3.8-flash for Gemini, "
+        "moonshotai/kimi-k2.6 for NVIDIA.",
+    )
+
+    @property
+    def judge_model_id(self) -> str:
+        return self.judge_model or _DEFAULT_JUDGE_MODELS[self.judge_provider]
 
     @classmethod
     def settings_customise_sources(

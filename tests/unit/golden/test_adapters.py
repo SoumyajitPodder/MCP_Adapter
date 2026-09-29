@@ -18,8 +18,9 @@ from adapter_verify.golden.adapters.files import (
 )
 from adapter_verify.golden.adapters.gemini import ClientModels, GeminiAgent, GeminiJudge
 from adapter_verify.golden.adapters.git import GitError, GitRepo
+from adapter_verify.golden.adapters.nvidia import NvidiaAgent, NvidiaJudge
 from adapter_verify.golden.domain.results import SuiteResults, TokenUsage
-from adapter_verify.golden.domain.tasks import AgentConfig
+from adapter_verify.golden.domain.tasks import AgentConfig, ModelProvider
 from adapter_verify.golden.ports import HarnessUnavailableError
 from adapter_verify.settings import GoldenSettings
 from tests.unit.golden.support import Repo, read_task
@@ -169,24 +170,65 @@ def test_guard_allows_addresses_resolved_for_allowed_hosts(monkeypatch: pytest.M
 
 def test_gemini_wiring_needs_a_key_and_a_known_harness() -> None:
     reference = AgentConfig(agent_id="a", harness="reference", model="m", system_prompt="s")
-    no_key = GoldenSettings()
+    no_key = GoldenSettings(judge_provider="gemini")
     assert composition.gemini_models(no_key) is None
-    assert composition.golden_judge(no_key, None) is None
+    assert composition.golden_judge(no_key, composition.ModelClients()) is None
     with pytest.raises(HarnessUnavailableError, match="ADAPTER_GOLDEN_GEMINI_API_KEY"):
-        composition.golden_harness(no_key, reference, None)
-    keyed = GoldenSettings(gemini_api_key=SecretStr("test-key-not-real"))
-    models = composition.gemini_models(keyed)
+        composition.golden_harness(no_key, reference, composition.ModelClients())
+    keyed = GoldenSettings(gemini_api_key=SecretStr("test-key-not-real"), judge_provider="gemini")
+    clients = composition.model_clients(keyed)
+    models = clients.gemini
     gc.collect()  # a collected Client would close the HTTP pool under the adapters
     assert isinstance(models, ClientModels)
     pool = models._client._api_client._async_httpx_client
     assert pool is not None
     assert not pool.is_closed
-    assert isinstance(composition.golden_harness(keyed, reference, models), GeminiAgent)
-    assert isinstance(composition.golden_judge(keyed, models), GeminiJudge)
+    assert clients.nvidia is None
+    assert isinstance(composition.golden_harness(keyed, reference, clients), GeminiAgent)
+    judge = composition.golden_judge(keyed, clients)
+    assert isinstance(judge, GeminiJudge)
+    assert judge.model == "gemini-3.8-flash"
     with pytest.raises(HarnessUnavailableError, match="'custom'"):
         composition.golden_harness(
-            keyed, reference.model_copy(update={"harness": "custom"}), models
+            keyed, reference.model_copy(update={"harness": "custom"}), clients
         )
+
+
+def test_nvidia_wiring_follows_the_agent_config_and_judge_provider() -> None:
+    reference = AgentConfig(
+        agent_id="a",
+        harness="reference",
+        provider=ModelProvider.NVIDIA,
+        model="m",
+        system_prompt="s",
+    )
+    no_key = GoldenSettings()
+    assert composition.golden_judge(no_key, composition.ModelClients()) is None
+    with pytest.raises(HarnessUnavailableError, match="ADAPTER_GOLDEN_NVIDIA_API_KEY"):
+        composition.golden_harness(no_key, reference, composition.ModelClients())
+    keyed = GoldenSettings(nvidia_api_key=SecretStr("test-key-not-real"))
+    clients = composition.model_clients(keyed)
+    assert clients.gemini is None
+    assert isinstance(composition.golden_harness(keyed, reference, clients), NvidiaAgent)
+    judge = composition.golden_judge(keyed, clients)
+    assert isinstance(judge, NvidiaJudge)
+    assert judge.model == "moonshotai/kimi-k2.6"
+    pinned = keyed.model_copy(update={"judge_model": "other/judge"})
+    assert composition.golden_judge(pinned, clients).model == "other/judge"  # type: ignore[union-attr]
+
+
+def test_egress_allows_the_configured_model_apis_only() -> None:
+    assert composition.golden_egress_hosts(GoldenSettings()) == frozenset()
+    both = GoldenSettings(
+        gemini_api_key=SecretStr("test-key-not-real"),
+        nvidia_api_key=SecretStr("test-key-not-real"),
+        egress_allowed_hosts=("extra.invalid",),
+    )
+    assert composition.golden_egress_hosts(both) == {
+        "extra.invalid",
+        "generativelanguage.googleapis.com",
+        "integrate.api.nvidia.com",
+    }
 
 
 def test_reference_agent_config_needs_model_and_prompt() -> None:

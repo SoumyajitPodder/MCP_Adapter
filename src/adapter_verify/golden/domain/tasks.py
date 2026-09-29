@@ -102,12 +102,22 @@ class RunLimits(FrozenModel):
     )
 
 
+class ModelProvider(StrEnum):
+    """Model API behind the reference agent or the judge (D-083, D-095)."""
+
+    GEMINI = "gemini"
+    NVIDIA = "nvidia"
+
+
 class AgentConfig(FrozenModel):
     """``golden_tasks/<agent_id>/agent.yaml``: how to run one agent under test."""
 
     agent_id: str = Field(pattern=AGENT_ID_PATTERN, description="Agent; equals the directory.")
     harness: str = Field(min_length=1, description="Harness kind that runs the agent.")
     model: str | None = Field(default=None, description="Pinned model ID, recorded with results.")
+    provider: ModelProvider = Field(
+        default=ModelProvider.GEMINI, description="Model API the reference harness calls."
+    )
     system_prompt: str | None = Field(
         default=None, min_length=1, description="Instructions for an LLM-backed agent."
     )

@@ -8,6 +8,7 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import asyncpg
 from google.genai import Client as GenaiClient
@@ -43,16 +44,23 @@ from adapter_verify.contract_ci.service import AccessView, ContractCi
 from adapter_verify.golden.adapters.egress import SocketEgressGuard
 from adapter_verify.golden.adapters.files import Workspace, load_calibration, load_workspace
 from adapter_verify.golden.adapters.gemini import (
-    REFERENCE_HARNESS,
+    GEMINI_HOST,
     AsyncModels,
     ClientModels,
     GeminiAgent,
     GeminiJudge,
 )
 from adapter_verify.golden.adapters.git import GitRepo
+from adapter_verify.golden.adapters.llm import REFERENCE_HARNESS
+from adapter_verify.golden.adapters.nvidia import (
+    ChatCompletions,
+    HttpxChatCompletions,
+    NvidiaAgent,
+    NvidiaJudge,
+)
 from adapter_verify.golden.domain.definitions import ToolDefinition
 from adapter_verify.golden.domain.select import Layout, input_digest
-from adapter_verify.golden.domain.tasks import AgentConfig, GoldenTask
+from adapter_verify.golden.domain.tasks import AgentConfig, GoldenTask, ModelProvider
 from adapter_verify.golden.ports import (
     AgentHarness,
     HarnessUnavailableError,
@@ -384,22 +392,64 @@ def gemini_models(settings: GoldenSettings) -> AsyncModels | None:
     return ClientModels(client)
 
 
+def nvidia_completions(settings: GoldenSettings) -> ChatCompletions | None:
+    """The NVIDIA API client, or None without a key. The key reaches only the adapters (R-012)."""
+    if settings.nvidia_api_key is None:
+        return None
+    return HttpxChatCompletions(settings.nvidia_api_key, base_url=settings.nvidia_base_url)
+
+
+@dataclass(frozen=True)
+class ModelClients:
+    """One client per model API that has a key (D-095)."""
+
+    gemini: AsyncModels | None = None
+    nvidia: ChatCompletions | None = None
+
+
+def model_clients(settings: GoldenSettings) -> ModelClients:
+    return ModelClients(gemini=gemini_models(settings), nvidia=nvidia_completions(settings))
+
+
 def golden_harness(
-    settings: GoldenSettings, config: AgentConfig, models: AsyncModels | None
+    settings: GoldenSettings, config: AgentConfig, clients: ModelClients
 ) -> AgentHarness:
     if config.harness != REFERENCE_HARNESS:
         msg = f"no agent harness of kind {config.harness!r} is available for {config.agent_id}"
         raise HarnessUnavailableError(msg)
-    if models is None:
-        msg = "set ADAPTER_GOLDEN_GEMINI_API_KEY (see .env.example) to run reference agents"
-        raise HarnessUnavailableError(msg)
     del settings
     # The model validator guarantees both for the reference harness.
-    return GeminiAgent(models, model=config.model or "", system_prompt=config.system_prompt or "")
+    model, prompt = config.model or "", config.system_prompt or ""
+    if config.provider is ModelProvider.NVIDIA:
+        if clients.nvidia is None:
+            msg = f"set ADAPTER_GOLDEN_NVIDIA_API_KEY (see .env.example) to run {config.agent_id}"
+            raise HarnessUnavailableError(msg)
+        return NvidiaAgent(clients.nvidia, model=model, system_prompt=prompt)
+    if clients.gemini is None:
+        msg = f"set ADAPTER_GOLDEN_GEMINI_API_KEY (see .env.example) to run {config.agent_id}"
+        raise HarnessUnavailableError(msg)
+    return GeminiAgent(clients.gemini, model=model, system_prompt=prompt)
 
 
-def golden_judge(settings: GoldenSettings, models: AsyncModels | None) -> Judge | None:
-    return None if models is None else GeminiJudge(models, model=settings.judge_model)
+def golden_judge(settings: GoldenSettings, clients: ModelClients) -> Judge | None:
+    """The configured judge, or None when its provider has no key (runs are then not judged)."""
+    model = settings.judge_model_id
+    if settings.judge_provider == ModelProvider.NVIDIA.value:
+        return None if clients.nvidia is None else NvidiaJudge(clients.nvidia, model=model)
+    return None if clients.gemini is None else GeminiJudge(clients.gemini, model=model)
+
+
+def golden_egress_hosts(settings: GoldenSettings) -> frozenset[str]:
+    """Configured hosts plus the API host of every provider with a key: a run may always reach
+    the model it is configured to use, and nothing else."""
+    hosts = set(settings.egress_allowed_hosts)
+    if settings.gemini_api_key is not None:
+        hosts.add(GEMINI_HOST)
+    if settings.nvidia_api_key is not None:
+        host = urlsplit(settings.nvidia_base_url).hostname
+        if host:
+            hosts.add(host)
+    return frozenset(hosts)
 
 
 def golden_sandboxes(access_settings: AccessSettings, workspace: Workspace) -> "_SandboxFactory":
@@ -479,15 +529,15 @@ def golden_runner(
     access_settings: AccessSettings,
     workspace: Workspace,
 ) -> GoldenRunner:
-    models = gemini_models(settings)
+    clients = model_clients(settings)
     return GoldenRunner(
         sandboxes=golden_sandboxes(access_settings, workspace),
-        harnesses=lambda config: golden_harness(settings, config, models),
-        judge=golden_judge(settings, models),
+        harnesses=lambda config: golden_harness(settings, config, clients),
+        judge=golden_judge(settings, clients),
         calibration=load_calibration(settings.root / settings.calibration_dir)
         if (settings.root / settings.calibration_dir).is_dir()
         else [],
-        egress=SocketEgressGuard(frozenset(settings.egress_allowed_hosts)),
+        egress=SocketEgressGuard(golden_egress_hosts(settings)),
         clock=SystemClock(),
     )
 

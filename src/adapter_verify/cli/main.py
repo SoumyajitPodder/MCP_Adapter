@@ -706,7 +706,7 @@ def golden_calibrate() -> None:
             click.echo(f"ERROR\t{miss.case_id}\t{miss.judge_error}")
     if misses:
         sys.exit(EXIT_FAILED)
-    click.echo(f"judge {g.settings.judge_model} classified every calibration case")
+    click.echo(f"judge {g.settings.judge_model_id} classified every calibration case")
 
 
 @golden.command("canaries")

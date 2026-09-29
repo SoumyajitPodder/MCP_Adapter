@@ -3,15 +3,15 @@
 The execution and verification layer of an MCP adapter that puts stable, versioned tools in front of legacy telecom backends. It answers one question: **can we safely and reliably execute and verify this tool call?**
 
 > **Status:**
-> - Done: M0 (foundation), M1 (logging and audit), M2 (access control), M3 (duplicate prevention), M4 (contract CI), M5 (golden tasks, with a Gemini reference agent and judge).
-> - Next: the first live golden run and canaries with the owner's Gemini key; then the CI golden job, once a network-isolated runner exists.
+> - Done: M0 (foundation), M1 (logging and audit), M2 (access control), M3 (duplicate prevention), M4 (contract CI), M5 (golden tasks, with a reference agent and judge on the NVIDIA API catalog or Gemini).
+> - Next: the first full live golden run and canaries (NVIDIA key); then the CI golden job, once a network-isolated runner exists.
 
 ## What it does
 
 | Component | When it runs | Purpose | State |
 | --- | --- | --- | --- |
 | Contract testing | CI | Blocks upstream or contract changes that would break agents | **M4, done** |
-| Golden-task regression | CI / sandbox | Proves agent behavior still holds after tool, description, mapping or model changes | **M5 done** (live runs need a Gemini key) |
+| Golden-task regression | CI / sandbox | Proves agent behavior still holds after tool, description, mapping or model changes | **M5 done** (live runs need a model API key) |
 | Duplicate prevention | every mutating call | Retries of a mutating call take effect exactly once; if the outcome is unknown, it goes to a human instead of guessing | **M3, done** |
 | Correlation-ID logging | every call | One ID reconstructs a whole decision chain, with fail-closed redaction and a tamper-evident audit trail | **M1, done** |
 | Access control | every call | Deny by default, enforced at both tool discovery and tool execution | **M2, done** |
@@ -80,7 +80,7 @@ Access policies live in `policies/` (one file per agent), checked by `uv run ada
 uv run adapter-verify access explain --agent order-status-agent --tool order.get
 ```
 
-Golden tasks live in `golden_tasks/`; `uv run adapter-verify golden lint` checks them in CI. Live runs call the Gemini API: copy `.env.example` to `.env` (git-ignored) and paste your key there. The free tier uses submitted content to improve Google's products; golden data is synthetic only.
+Golden tasks live in `golden_tasks/`; `uv run adapter-verify golden lint` checks them in CI. Live runs call a model API (NVIDIA API catalog by default, or Gemini): copy `.env.example` to `.env` (git-ignored) and paste your key there. Free tiers may use submitted content; golden data is synthetic only.
 
 ```bash
 uv run adapter-verify golden calibrate
@@ -128,7 +128,9 @@ Access (§9) and idempotency (§7) stages exist; the others arrive with Romik's 
 
 ## Costs
 
-- Golden runs call Gemini: per suite run, one agent conversation per task run (5 tasks × 3 runs) plus one judge call per judged run and 7 calibration calls. `golden canaries` adds a baseline suite plus one partial suite per canary. On the free tier this costs nothing but is rate-limited (20 requests per model per day, measured 2026-09-26), so a full cycle spans several days; token counts are recorded in each results file and will be written here after the first real run.
+- Per suite run: one agent conversation per task run (5 tasks × 3 runs, a few requests each) plus one judge call per judged run and 7 calibration calls. `golden canaries` adds a baseline suite plus one partial suite per canary. Token counts are recorded in each results file and will be written here after the first real run.
+  - NVIDIA API catalog (default): the free key comes with trial credits (about one per request) and a per-minute rate limit; 429s are retried with backoff.
+  - Gemini free tier: 20 requests per model per day (measured 2026-09-26), so a full cycle spans several days.
 - The audit trail writes one row per audited decision. Anchoring adds one row per changed chain per run.
 
 ## Constraints

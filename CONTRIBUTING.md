@@ -20,7 +20,7 @@ uv run lint-imports                       # architecture contracts
 uv run pytest --cov                       # unit + property (coverage floor 90%)
 uv run pytest -m integration              # real Postgres via Docker
 uv run adapter-verify golden lint         # golden task files
-uv run adapter-verify golden run --all    # live: needs the Gemini key in .env (see .env.example)
+uv run adapter-verify golden run --all    # live: needs a model API key in .env (see .env.example)
 uv run python scripts/gen_spec.py         # regenerate SPEC tables and docs/schemas
 uv run python scripts/gen_spec.py --check # CI freshness gate
 uv lock --check
@@ -55,5 +55,5 @@ uv lock --check
 - **Import testcontainers from `testcontainers.community.postgres`.** The old path warns, which becomes an error.
 - **`MIGRATIONS_DIR` points at the repository.** An installed wheel needs `--migrations-dir`.
 - **Integration tests need the Docker daemon running.**
-- **Tests never see a real model key.** An autouse fixture clears `ADAPTER_GOLDEN_GEMINI_API_KEY` and stops `.env` loading; adapters are tested against a fake client.
+- **Tests never see a real model key.** An autouse fixture clears the Gemini and NVIDIA keys and stops `.env` loading; adapters are tested against fake clients.
 - **Gemini 3: keep temperature at the default and send the model's turns back unchanged.** Lower temperatures can loop, and dropped thought signatures break multi-turn tool calling.

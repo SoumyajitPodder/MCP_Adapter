@@ -15,6 +15,7 @@ settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 @pytest.fixture(autouse=True)
 def _no_real_model_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tests never see a real Gemini key: not from the environment, not from a local .env."""
+    """Tests never see a real model key: not from the environment, not from a local .env."""
     monkeypatch.delenv("ADAPTER_GOLDEN_GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ADAPTER_GOLDEN_NVIDIA_API_KEY", raising=False)
     monkeypatch.setitem(GoldenSettings.model_config, "env_file", None)

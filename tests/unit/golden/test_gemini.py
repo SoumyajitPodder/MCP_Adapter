@@ -12,7 +12,8 @@ from pydantic import ValidationError
 from adapter_kernel.errors import AdapterError, ErrorCode
 from adapter_kernel.meta import ResponseMeta
 from adapter_kernel.pipeline import ToolFailure, ToolSuccess
-from adapter_verify.golden.adapters.gemini import GeminiAgent, GeminiJudge, idempotency_key
+from adapter_verify.golden.adapters.gemini import GeminiAgent, GeminiJudge
+from adapter_verify.golden.adapters.llm import idempotency_key
 from adapter_verify.golden.domain.judge import AnswerEvidence
 from adapter_verify.golden.domain.tasks import RunLimits
 from adapter_verify.golden.ports import (

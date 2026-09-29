@@ -5,19 +5,22 @@ lower values can cause looping (checked 2026-09-26). Repeats and thresholds abso
 The model's own turns are appended to the history unchanged, so thought signatures survive.
 """
 
-import hashlib
-import json
 from collections.abc import Sequence
-from typing import Any, Final, Protocol
+from typing import Final, Protocol
 
-import rfc8785
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from adapter_kernel.errors import ERROR_SPECS
 from adapter_kernel.jsontypes import JsonObject
-from adapter_kernel.pipeline import ToolFailure, ToolSuccess
+from adapter_verify.golden.adapters.llm import (
+    JUDGE_INSTRUCTIONS,
+    REFERENCE_HARNESS,
+    VERDICT_SCHEMA,
+    idempotency_key,
+    judge_request,
+    tool_payload,
+)
 from adapter_verify.golden.domain.judge import AnswerEvidence, JudgeVerdict
 from adapter_verify.golden.domain.results import TokenUsage
 from adapter_verify.golden.domain.tasks import RunLimits
@@ -31,25 +34,7 @@ from adapter_verify.golden.ports import (
     ToolView,
 )
 
-REFERENCE_HARNESS: Final = "reference"
 GEMINI_HOST: Final = "generativelanguage.googleapis.com"
-
-_VERDICT_SCHEMA: Final[dict[str, Any]] = {
-    "type": "object",
-    "properties": {
-        "score": {"type": "number", "minimum": 0, "maximum": 1},
-        "passed": {"type": "boolean"},
-        "reasons": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-    },
-    "required": ["score", "passed", "reasons"],
-}
-_JUDGE_INSTRUCTIONS: Final = (
-    "You grade one answer given by a customer-support agent. You receive the customer's "
-    "question, the tool results the agent saw, a rubric, and the agent's final answer. "
-    "Decide whether the answer meets every point of the rubric and is supported by the tool "
-    "results. Return JSON only: score from 0 (fails) to 1 (fully meets), passed true exactly "
-    "when score >= 0.5, and one short reason per point that decided it."
-)
 
 
 class AsyncModels(Protocol):
@@ -104,29 +89,6 @@ def _usage(response: types.GenerateContentResponse) -> TokenUsage:
         return TokenUsage()
     output = (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)
     return TokenUsage(input_tokens=meta.prompt_token_count or 0, output_tokens=output)
-
-
-def _payload(outcome: ToolSuccess | ToolFailure) -> dict[str, Any]:
-    """What the model sees as the function result: the agent-facing view only."""
-    if isinstance(outcome, ToolSuccess):
-        return {"result": outcome.content}
-    error: dict[str, Any] = {
-        "code": outcome.error.code.value,
-        "message": ERROR_SPECS[outcome.error.code].agent_message,
-    }
-    if outcome.error.retry_after_ms is not None:
-        error["retry_after_ms"] = outcome.error.retry_after_ms
-    return {"error": error}
-
-
-def idempotency_key(tool: str, arguments: JsonObject) -> str:
-    """The key an orchestrator would send: stable for the same call, so a retry can't double
-    an effect (§7). Read-only tools ignore it."""
-    try:
-        canonical = rfc8785.dumps({"tool": tool, "arguments": arguments})
-    except rfc8785.CanonicalizationError:
-        canonical = repr((tool, sorted(arguments))).encode()
-    return f"ref-{hashlib.sha256(canonical).hexdigest()[:40]}"
 
 
 class GeminiAgent:
@@ -189,7 +151,7 @@ class GeminiAgent:
                 parts.append(
                     types.Part(
                         function_response=types.FunctionResponse(
-                            id=fc.id, name=name, response=_payload(outcome)
+                            id=fc.id, name=name, response=tool_payload(outcome)
                         )
                     )
                 )
@@ -209,24 +171,15 @@ class GeminiJudge:
         return self._model
 
     async def grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict:
-        request = json.dumps(
-            {
-                "question": evidence.prompt,
-                "tool_results": list(evidence.tool_results),
-                "rubric": rubric,
-                "answer": evidence.answer,
-            },
-            indent=2,
-            sort_keys=True,
-        )
+        request = judge_request(rubric, evidence)
         try:
             response = await self._models.generate_content(
                 model=self._model,
                 contents=request,
                 config=types.GenerateContentConfig(
-                    system_instruction=_JUDGE_INSTRUCTIONS,
+                    system_instruction=JUDGE_INSTRUCTIONS,
                     response_mime_type="application/json",
-                    response_json_schema=_VERDICT_SCHEMA,
+                    response_json_schema=VERDICT_SCHEMA,
                 ),
             )
         except genai_errors.APIError as exc:

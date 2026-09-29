@@ -263,7 +263,10 @@ All config comes from `ADAPTER_*` environment variables and is validated at star
 | `ADAPTER_GOLDEN_TOKEN_BUDGET` | `Optional[Annotated[int, FieldInfo(annotation=NoneType, required=True, metadata=[Ge(ge=1)])]]` | `None` | no | Suite token budget; runs stop when it is spent. Measure first. |
 | `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS` | `tuple[str, ...]` | `()` | no | Hosts a run may reach, e.g. generativelanguage.googleapis.com. |
 | `ADAPTER_GOLDEN_GEMINI_API_KEY` | `SecretStr \| None` | `None` | no | Gemini API key for the reference agent and judge. Secret. |
-| `ADAPTER_GOLDEN_JUDGE_MODEL` | `str` | `'gemini-3.8-flash'` | no | Pinned judge model (M5b-Q2). |
+| `ADAPTER_GOLDEN_NVIDIA_API_KEY` | `SecretStr \| None` | `None` | no | NVIDIA API catalog key for the agent and judge. Secret. |
+| `ADAPTER_GOLDEN_NVIDIA_BASE_URL` | `str` | `'https://integrate.api.nvidia.com/v1'` | no | NVIDIA OpenAI-compatible API base URL. |
+| `ADAPTER_GOLDEN_JUDGE_PROVIDER` | `Literal['gemini', 'nvidia']` | `'nvidia'` | no | Model API of the answer judge (D-095). |
+| `ADAPTER_GOLDEN_JUDGE_MODEL` | `str \| None` | `None` | no | Pinned judge model. Default per provider: gemini-3.8-flash for Gemini, moonshotai/kimi-k2.6 for NVIDIA. |
 <!-- END GENERATED -->
 
 ## 5. Contract testing in CI
@@ -326,7 +329,7 @@ See the gate bullet above and §11 (`contract check`).
 
 ## 6. Golden-task regression
 
-*Milestone M5 implemented: M5a (offline core) and M5b (Gemini reference agent and judge, D-083). Tests: `tests/unit/golden/`, `tests/unit/cli/test_golden_cli.py`. First live run pending the owner's key.*
+*Milestone M5 implemented: M5a (offline core) and M5b (reference agent and judge on Gemini, D-083, and the NVIDIA API catalog, D-095). Tests: `tests/unit/golden/`, `tests/unit/cli/test_golden_cli.py`. First full live run pending.*
 
 - **Task files:** `golden_tasks/<agent>/<task_id>.yaml` (schema below), one `agent.yaml` per agent, and `golden_tasks/quarantine.yaml`.
   - Fixtures are canonical tool output in `fixtures/golden/<name>.synthetic.json`, checked against the tool's contract.
@@ -337,18 +340,19 @@ See the gate bullet above and §11 (`contract check`).
   - Stores are in memory and the secret manager returns sentinels. The stub backend serves fixtures and counts calls and acknowledged writes.
   - Outbound connections are blocked by an in-process tripwire, not isolation: native code and child processes aren't covered.
 - **Agent:** runs behind `AgentHarness`. It sees only the tools `tools/list` allows. Calls are recorded by the sandbox, not taken from the agent.
-  - `harness: reference` is `GeminiAgent`, a tool-use loop with the model and system prompt from `agent.yaml`.
-    - The model's own turns go back unchanged (Gemini thought signatures).
-    - Temperature stays at the model default, per Google's guidance for Gemini 3.
+  - `harness: reference` is a tool-use loop with the model and system prompt from `agent.yaml`, on the API `provider` names:
+    - `nvidia` (`NvidiaAgent`): OpenAI-style chat completions on the NVIDIA API catalog, over httpx. Tool names go out with `.` replaced by `_`. Arguments that aren't a JSON object get `INVALID_INPUT` and never reach the sandbox. Quota and server errors are retried with backoff (`Retry-After` first).
+    - `gemini` (`GeminiAgent`): the model's own turns go back unchanged (thought signatures).
+    - Sampling stays at the model default (D-085).
     - For state-changing tools it sends a stable idempotency key per distinct call, as an orchestrator would.
-  - Without `ADAPTER_GOLDEN_GEMINI_API_KEY` (read from the environment or a git-ignored `.env`; see `.env.example`), `golden run` exits 3. `ScriptedAgent` drives the tests.
-  - The key reaches only the two Gemini adapters, never the `SecretManager` port. Runs may reach only `generativelanguage.googleapis.com`.
-  - The Gemini free tier uses submitted content to improve Google's products, so golden inputs must stay synthetic.
+  - Without the provider's key (`ADAPTER_GOLDEN_NVIDIA_API_KEY` or `ADAPTER_GOLDEN_GEMINI_API_KEY`, read from the environment or a git-ignored `.env`; see `.env.example`), `golden run` exits 3. `ScriptedAgent` drives the tests.
+  - Keys reach only the model adapters, never the `SecretManager` port. Runs may reach only the API host of each provider with a key, plus `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS`.
+  - Free tiers may use submitted content, so golden inputs must stay synthetic.
 - **Layers, in order, first failure wins:**
   1. **calls:** tool, version, arguments (JSON equality);
   2. **sequence:** forbidden tools (even denied attempts), order, `exact_calls`;
   3. **state:** writes and per-tool calls at the stub backend;
-  4. **answer:** the judge (`GeminiJudge`, `ADAPTER_GOLDEN_JUDGE_MODEL`, default `gemini-3.8-flash`). Its output is constrained to the verdict schema, then validated.
+  4. **answer:** the judge (`ADAPTER_GOLDEN_JUDGE_PROVIDER`, default `nvidia`; `ADAPTER_GOLDEN_JUDGE_MODEL`, default `moonshotai/kimi-k2.6` or `gemini-3.8-flash`), a different model from the agent. `GeminiJudge` output is constrained to the verdict schema; `NvidiaJudge` gets the schema in its instructions. Either way the reply is validated strictly.
      - Before any task is judged, the judge must classify every case in `tests/golden_selftest/calibration/` (`golden calibrate` runs just that); otherwise runs are `judge_uncalibrated`.
      - Without a judge, runs are `not_judged`.
      - Either way the task is `incomplete`, which never passes a gate.
@@ -439,6 +443,7 @@ What the stub backend returns for calls to one tool (canonical output, synthetic
 | `agent_id` | `str` | yes | Agent; equals the directory. |
 | `harness` | `str` | yes | Harness kind that runs the agent. |
 | `model` | `str \| None` | no | Pinned model ID, recorded with results. |
+| `provider` | `ModelProvider` | no | Model API the reference harness calls. |
 | `system_prompt` | `str \| None` | no | Instructions for an LLM-backed agent. |
 | `limits` | `RunLimits` | no | Per-run limits. |
 
@@ -830,8 +835,8 @@ One released tool version. Stand-in for the tool registry (brief §1) until it e
 | `IdempotencyStore` | `idempotency.ports` | `PostgresIdempotencyStore` | `MemoryIdempotencyStore` | M3 |
 | `OwnerAlerts` | `idempotency.ports` | `LogOwnerAlerts` (interim; channel TBD) | `MemoryOwnerAlerts` | M3 |
 | `Reconciler` | `idempotency.ports` | *none in Phase 1: people resolve `UNKNOWN`* | — | M3 |
-| `AgentHarness` | `golden.ports` | `GeminiAgent` (`harness: reference`) | `ScriptedAgent` | M5 |
-| `Judge` | `golden.ports` | `GeminiJudge` | `ScriptedJudge` | M5 |
+| `AgentHarness` | `golden.ports` | `NvidiaAgent`, `GeminiAgent` (`harness: reference`) | `ScriptedAgent` | M5 |
+| `Judge` | `golden.ports` | `NvidiaJudge`, `GeminiJudge` | `ScriptedJudge` | M5 |
 | `SandboxFactory` / `SandboxSession` | `golden.ports` | `GoldenSandbox` (wired in `composition`) | — | M5 |
 | `EgressGuard` | `golden.ports` | `SocketEgressGuard` (tripwire) | `RecordingEgressGuard` | M5 |
 | `Next`, `Stage` | `adapter_kernel.pipeline` | `AccessStage`, `IdempotencyStage`; order fixed in `composition.stage_order` | `FaultyConnector` (stub backend, every delivery outcome) | M0 |

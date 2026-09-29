@@ -7,6 +7,19 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-29 — Session 22: NVIDIA API catalog as the golden model provider (D-095)
+
+The Gemini free tier (20 requests per model per day) can't finish the §6.11 acceptance in reasonable time, so the owner is getting an NVIDIA API catalog key. The owner approved D-095 as proposed.
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-095 | The reference agent and the judge can run on the NVIDIA API catalog: `NvidiaAgent`, `NvidiaJudge` and an httpx client for its OpenAI-style chat completions. `agent.yaml` picks the agent's provider (`provider: nvidia`, default `gemini`); `ADAPTER_GOLDEN_JUDGE_PROVIDER` picks the judge's (default `nvidia`). The order-status agent now runs `nvidia/nemotron-3-super-120b-a12b`; the judge defaults to `moonshotai/kimi-k2.6`, a different model family, as with Gemini. Gemini stays selectable. | Rejected: the `openai` SDK (a new dependency; httpx is already locked through `google-genai` and is now declared). Rejected: pinning Nemotron as judge (same family as the agent, self-preference). Kimi is unproven as a judge: calibration decides, and `ADAPTER_GOLDEN_JUDGE_MODEL` swaps it. | approved by owner |
+| D-096 | Details of D-095: tool names go out with `.` → `_` (OpenAI-style names allow only `[A-Za-z0-9_-]`); arguments that aren't a JSON object are answered with `INVALID_INPUT` and never reach the sandbox; `<think>` blocks are stripped from answers; the judge gets the verdict schema in its instructions and its reply is validated strictly (the outermost `{...}` is taken, so a code fence doesn't matter); 429 and 5xx are retried 5 times with backoff, `Retry-After` first; errors are reported as HTTP code and reason phrase only; no response at all is `model_unavailable` (D-094). Egress now always allows the API host of each provider with a key, plus `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS`. Sampling stays at the model default (D-085). | The trial tier allows about 40 requests per minute and has about 1,000 credits (one per request), per third-party reports, not NVIDIA docs; a suite plus canaries needs a few hundred. Not sent: `response_format`, whose support varies by hosted model. | pending |
+
+Verified: unit tests against a fake chat API and httpx's mock transport; a live request with a dummy key passed the egress tripwire and came back `401 Unauthorized`. Not verified: a real run (needs the key).
+
+---
+
 ## 2026-09-28 — Session 21: second live run hit an outage; outages made undecided
 
 `golden run --all` at `38b8558`: all 15 runs ended `harness_error` before any tool call. The agent model returned 5xx, then 4xx (likely 429 once the SDK retries spent the quota); the judge's calibration got `503 UNAVAILABLE`, confirmed by a separate `golden calibrate`. No tokens were recorded, so the suite budget is still unmeasured, and `golden canaries` was not run.

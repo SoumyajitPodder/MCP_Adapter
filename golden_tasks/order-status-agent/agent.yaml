@@ -1,8 +1,10 @@
-# How the golden runner starts this agent: the in-repo reference agent on Gemini (D-083).
+# How the golden runner starts this agent: the in-repo reference agent on the NVIDIA API
+# catalog (D-095; Gemini, D-083, is `provider: gemini`).
 # Stand-in until the agent's owning team provides the real one. TODO(owner): replace.
 agent_id: order-status-agent
 harness: reference
-model: gemini-3.5-flash
+provider: nvidia
+model: nvidia/nemotron-3-super-120b-a12b
 system_prompt: >-
   You are the order status agent for a telecom provider's customer support team.
   Answer customer questions about orders and services by looking them up with the tools

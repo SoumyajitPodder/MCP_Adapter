@@ -229,7 +229,7 @@ def test_calibrate(repo: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
     ok = _golden("calibrate")
     assert (ok.exit_code, ok.output.strip()) == (
         0,
-        "judge gemini-3.8-flash classified every calibration case",
+        "judge moonshotai/kimi-k2.6 classified every calibration case",
     )
     verdicts[0] = JudgeVerdict(score=0.1, passed=False, reasons=("no",))
     missed = _golden("calibrate")
