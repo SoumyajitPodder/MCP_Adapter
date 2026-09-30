@@ -2,6 +2,7 @@
 with the correct rule ID, and the impact report names the right agents. Runs the real CLI
 against a copy of the repository's contract, access and sample files."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -103,3 +104,14 @@ def test_hand_edited_baseline_is_rejected(workspace: Path) -> None:
     result = CliRunner().invoke(cli, ["contract", "check"])
     assert result.exit_code == 3
     assert "content hash does not match" in result.output
+
+
+def test_baseline_without_its_hash_is_rejected(workspace: Path) -> None:
+    path = workspace / "baselines" / "order-management.rest.get-order" / "v2.shape.json"
+    body = json.loads(path.read_text(encoding="utf-8"))
+    del body["content_hash"]
+    body["operations"][0]["outputs"] = body["operations"][0]["outputs"][1:]
+    path.write_text(json.dumps(body), encoding="utf-8")
+    result = CliRunner().invoke(cli, ["contract", "check"])
+    assert result.exit_code == 3
+    assert "no content hash" in result.output

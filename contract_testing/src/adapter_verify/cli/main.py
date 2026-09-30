@@ -274,7 +274,8 @@ def contract_check(*, review_approved: bool, report: Path | None) -> None:
 def contract_diff(base: Path, rev: Path, kind: str) -> None:
     """Diff two shape files and classify every change."""
     try:
-        base_shape, rev_shape = read_shape(base), read_shape(rev)
+        base_shape = read_shape(base, require_hash=False)
+        rev_shape = read_shape(rev, require_hash=False)
         changes = diff(base_shape, rev_shape)
     except (ConfigFileError, ValueError) as exc:
         _fail(str(exc))

@@ -16,11 +16,18 @@ from adapter_verify.contract_ci.domain.rules import RuleBook
 from adapter_verify.contract_ci.domain.sources import SourceConfig
 
 
-def read_shape(path: Path) -> Shape:
-    """Read a baseline, verifying its recorded content hash (a hand-edited baseline fails)."""
+def read_shape(path: Path, *, require_hash: bool = True) -> Shape:
+    """Read a shape, verifying its recorded content hash (a hand-edited baseline fails).
+
+    Baselines must carry the hash: deleting it would otherwise switch the check off.
+    ``require_hash=False`` is for ad-hoc files, e.g. ``contract diff`` on a hand-made shape.
+    """
     body = json.loads(path.read_text(encoding="utf-8"))
     recorded = body.pop("content_hash", None)
     shape = Shape.model_validate_json(json.dumps(body))
+    if recorded is None and require_hash:
+        msg = f"{path.name}: no content hash; baselines change only via `baseline accept`"
+        raise ConfigFileError(msg)
     if recorded is not None and recorded != shape.content_hash():
         msg = (
             f"{path.name}: content hash does not match; baselines change only via `baseline accept`"
