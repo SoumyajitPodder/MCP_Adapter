@@ -23,13 +23,15 @@ def render_markdown(result: GateResult, callers: Mapping[str, Sequence[str]]) ->
         f"| {r.check.value} | `{r.subject}` | {r.status.value} | {_cell(r.note or '')} |"
         for r in result.results
     ]
-    failing = [r for r in result.results if r.status is not Status.PASS]
-    for r in failing:
+    # A passing result can still carry findings: a MAJOR bump passes with its breaking changes,
+    # and those are exactly what the agents' owners need to retest against.
+    detailed = [r for r in result.results if r.status is not Status.PASS or r.findings]
+    for r in detailed:
         lines += ["", f"### {r.check.value}: `{r.subject}`", ""]
         lines += ["| Rule | Class | Operation | Path | Detail |", "| --- | --- | --- | --- | --- |"]
         lines += [
-            f"| `{f.rule_id}` | {f.classification.value} | {f.operation or '-'} "
-            f"| `{f.path or '-'}` | {_cell(f.detail + (f' ({f.note})' if f.note else ''))} |"
+            f"| `{f.rule_id}` | {f.classification.value} | {_cell(f.operation or '-')} "
+            f"| `{_cell(f.path or '-')}` | {_cell(f.detail + (f' ({f.note})' if f.note else ''))} |"
             for f in r.findings
         ]
         agents = ", ".join(

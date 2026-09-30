@@ -161,3 +161,13 @@ def test_report_names_rules_paths_and_agents_to_retest() -> None:
     assert "`qty`" in markdown
     assert "Agents to retest: `order-status-agent`." in markdown
     assert "`x`" not in markdown
+
+
+def test_report_details_the_breaking_changes_of_a_major_bump() -> None:
+    v1 = contract("1.2.0")
+    v2 = contract("2.0.0").model_copy(update={"fields": contract("2.0.0").fields[:1]})
+    result = gate(canonical_check([v1, v2], lock(v1), BOOK, at=_AT), review_approved=False)
+    assert result.exit_code == 0
+    markdown = render_markdown(result, {"order.get": ["order-status-agent"]})
+    assert "BREAKING" in markdown
+    assert "Agents to retest: `order-status-agent`." in markdown
