@@ -38,6 +38,15 @@ def test_baseline_extract_and_accept() -> None:
         assert CliRunner().invoke(cli, args).exit_code == 3
 
 
+def test_missing_sample_file_is_a_tool_error(workspace: Path) -> None:
+    for sample in (workspace / "fixtures" / "samples").glob("order-management.*"):
+        sample.unlink()
+    for command in ("extract", "accept"):
+        result = CliRunner().invoke(cli, ["baseline", command, "--source", SOURCE])
+        assert result.exit_code == 3, command
+        assert result.output.startswith("error:")
+
+
 def test_release_is_idempotent_and_refuses_changed_content(workspace: Path) -> None:
     runner = CliRunner()
     assert (

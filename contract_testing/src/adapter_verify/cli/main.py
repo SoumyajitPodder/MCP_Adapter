@@ -277,7 +277,7 @@ def contract_diff(base: Path, rev: Path, kind: str) -> None:
         base_shape = read_shape(base, require_hash=False)
         rev_shape = read_shape(rev, require_hash=False)
         changes = diff(base_shape, rev_shape)
-    except (ConfigFileError, ValueError) as exc:
+    except (ConfigFileError, OSError, ValueError) as exc:
         _fail(str(exc))
         return
     inferred = ProvenanceKind.INFERRED in {base_shape.provenance.kind, rev_shape.provenance.kind}
@@ -296,7 +296,7 @@ def contract_release(tool: str, version: str) -> None:
     """Record a contract version as released (commit the lock file in a reviewed PR)."""
     try:
         _contract_ci().release(tool, version)
-    except (ReleaseError, ConfigFileError) as exc:
+    except (ReleaseError, ConfigFileError, OSError, ValueError) as exc:
         _fail(str(exc))
     click.echo(f"released {tool}@{version}")
 
@@ -316,7 +316,7 @@ def baseline_extract(source_id: str) -> None:
         click.echo(ci.extract(source).model_dump_json(indent=2))
     except StopIteration:
         _fail(f"unknown source {source_id}")
-    except (ExtractionError, ValueError, ConfigFileError) as exc:
+    except (ExtractionError, ValueError, ConfigFileError, OSError) as exc:
         _fail(str(exc))
 
 
@@ -329,7 +329,7 @@ def baseline_accept(source_id: str) -> None:
     except KeyError:
         _fail(f"unknown source {source_id}")
         return
-    except (ExtractionError, ValueError, ConfigFileError) as exc:
+    except (ExtractionError, ValueError, ConfigFileError, OSError) as exc:
         _fail(str(exc))
         return
     click.echo(path)
