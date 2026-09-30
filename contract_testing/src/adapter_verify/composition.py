@@ -255,10 +255,14 @@ def build_idempotency(  # noqa: PLR0913 - one parameter per port
     return IdempotencyStage(store, payloads, observer, timing(settings), entropy)
 
 
-def stage_order(access: Access, idempotency: IdempotencyStage) -> list[Stage]:
+def stage_order(
+    access: Access, idempotency: IdempotencyStage, *, input_validation: Stage | None = None
+) -> list[Stage]:
     """The fixed stage order (§1.3, §3.5). §4 lifecycle and input validation join between
-    access and idempotency; the §3/§2 stages join after it."""
-    return [access.stage, idempotency]
+    access and idempotency; the §3/§2 stages join after it. Stages are placed here by name,
+    never by index, so the golden sandbox can't drift from production as stages are added."""
+    validation = [] if input_validation is None else [input_validation]
+    return [access.stage, *validation, idempotency]
 
 
 def build_pipeline(
@@ -456,6 +460,14 @@ def golden_sandboxes(access_settings: AccessSettings, workspace: Workspace) -> "
     return _SandboxFactory(access_settings, workspace)
 
 
+def _sandbox_idempotency() -> IdempotencySettings:
+    """Fixed values (the production defaults), not the environment's: golden results must not
+    depend on the operator's shell."""
+    return IdempotencySettings.model_construct(
+        lease_s=30, retention_h=72, lease_overrides_s={}, retention_overrides_h={}
+    )
+
+
 class _SandboxFactory:
     """A fresh pipeline per run: in-memory stores, sentinel secrets, the real policies."""
 
@@ -484,7 +496,7 @@ class _SandboxFactory:
             clock=clock,
         )
         idempotency = build_idempotency(
-            IdempotencySettings(),
+            _sandbox_idempotency(),
             store=MemoryIdempotencyStore(),
             payloads=MemoryPayloadStore(),
             audit=audit,
@@ -502,8 +514,9 @@ class _SandboxFactory:
             if (body := self._workspace.fixture(ref.payload)) is not None
         ]
         backend = FixtureBackend(fixtures, access.credentials)
-        stages = stage_order(access, idempotency)
-        stages.insert(1, DefinitionInputStage(definitions))  # §1.3: validation after access
+        stages = stage_order(
+            access, idempotency, input_validation=DefinitionInputStage(definitions)
+        )
         entry = ObservedEntry(
             telemetry=telemetry,
             events=events,
