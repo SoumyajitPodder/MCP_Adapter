@@ -78,3 +78,9 @@ async def test_env_secret_manager(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "value-from-env" not in repr(secret)
     with pytest.raises(SecretUnavailableError):
         await EnvSecretManager().get("missing")
+
+
+def test_env_secret_manager_rejects_names_that_share_a_variable() -> None:
+    EnvSecretManager(["order-management/read", "order-management/read", "inventory/read"])
+    with pytest.raises(ValueError, match="both map to ADAPTER_SECRET_ORDER_MANAGEMENT_READ"):
+        EnvSecretManager(["order-management/read", "order_management.read"])
