@@ -20,6 +20,7 @@ from adapter_verify.golden.ports import (
     ToolCall,
     ToolCaller,
     ToolView,
+    UsageMeter,
 )
 from tests.unit.golden.support import DEFINITIONS, Repo, read_task
 
@@ -177,9 +178,14 @@ class _DescriptionReader(ScriptedAgent):
     """Looks an order up only while order.get's description is the original one."""
 
     async def run(
-        self, prompt: str, tools: Sequence[ToolView], call_tool: ToolCaller, limits: RunLimits
+        self,
+        prompt: str,
+        tools: Sequence[ToolView],
+        call_tool: ToolCaller,
+        limits: RunLimits,
+        meter: UsageMeter | None = None,
     ) -> AgentRun:
-        del prompt, limits
+        del prompt, limits, meter
         names = {t.name: t.description for t in tools}
         if names.get("order.get") == DEFINITIONS["order.get/1.2.0"]["description"]:
             await call_tool(GET)

@@ -41,6 +41,17 @@ class AgentRun(FrozenModel):
     model: str | None = Field(default=None, description="Model that answered, if reported.")
 
 
+class UsageMeter:
+    """Tokens a harness has spent so far in one run. The runner reads it even when the run
+    raises or times out, so tokens spent before a failure still count toward the budget."""
+
+    def __init__(self) -> None:
+        self.total = TokenUsage()
+
+    def add(self, usage: TokenUsage) -> None:
+        self.total += usage
+
+
 class ToolCaller(Protocol):
     async def __call__(self, call: ToolCall) -> ToolSuccess | ToolFailure:
         """Run one call through the sandbox pipeline. Never raises for agent mistakes."""
@@ -59,9 +70,11 @@ class AgentHarness(Protocol):
         tools: Sequence[ToolView],
         call_tool: ToolCaller,
         limits: RunLimits,
+        meter: UsageMeter | None = None,
     ) -> AgentRun:
         """May raise ModelUnavailableError (outage) or HarnessFailedError (log-safe reason);
-        any other exception is reported by type and frames only."""
+        any other exception is reported by type and frames only. A harness that calls a model
+        adds each response's usage to ``meter`` as it goes."""
         ...
 
 

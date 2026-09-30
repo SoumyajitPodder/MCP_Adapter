@@ -51,6 +51,7 @@ from adapter_verify.golden.ports import (
     SandboxFactory,
     SandboxSession,
     ToolCall,
+    UsageMeter,
 )
 from adapter_verify.observability.domain.exceptions import safe_exception_summary
 
@@ -245,7 +246,7 @@ class GoldenRunner:
             try:
                 async with asyncio.timeout(config.limits.timeout_s):
                     attempt.agent_run = await harness.run(
-                        task.prompt, tools, attempt.recorder, config.limits
+                        task.prompt, tools, attempt.recorder, config.limits, attempt.meter
                     )
             except TimeoutError:
                 attempt.timed_out = True
@@ -329,6 +330,7 @@ class _Attempt:
     limits: RunLimits
     recorder: _Recorder
     agent_run: AgentRun | None = None
+    meter: UsageMeter = field(default_factory=UsageMeter)
     blocked: list[str] = field(default_factory=list)
     timed_out: bool = False
     outage: str | None = None
@@ -340,7 +342,9 @@ class _Attempt:
 
     @property
     def usage(self) -> TokenUsage:
-        return TokenUsage() if self.agent_run is None else self.agent_run.usage
+        """What the harness metered, or what it reported if it doesn't meter."""
+        reported = TokenUsage() if self.agent_run is None else self.agent_run.usage
+        return max(self.meter.total, reported, key=lambda u: u.total)
 
     def record(self, outcome: RunOutcome, **extra: object) -> RunRecord:
         return RunRecord.model_validate(

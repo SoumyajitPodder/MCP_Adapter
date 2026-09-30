@@ -7,7 +7,7 @@ from adapter_kernel.pipeline import ToolFailure, ToolSuccess
 from adapter_verify.golden.domain.judge import AnswerEvidence, JudgeVerdict
 from adapter_verify.golden.domain.results import TokenUsage
 from adapter_verify.golden.domain.tasks import RunLimits
-from adapter_verify.golden.ports import AgentRun, ToolCall, ToolCaller, ToolView
+from adapter_verify.golden.ports import AgentRun, ToolCall, ToolCaller, ToolView, UsageMeter
 
 
 class ScriptedAgent:
@@ -38,8 +38,11 @@ class ScriptedAgent:
         tools: Sequence[ToolView],
         call_tool: ToolCaller,
         limits: RunLimits,
+        meter: UsageMeter | None = None,
     ) -> AgentRun:
         del prompt, limits
+        if meter is not None:
+            meter.add(self._usage)
         self.seen_tools.append(list(tools))
         for call in self._calls:
             self.results.append(await call_tool(call))

@@ -32,6 +32,7 @@ from adapter_verify.golden.ports import (
     ToolCall,
     ToolCaller,
     ToolView,
+    UsageMeter,
 )
 
 GEMINI_HOST: Final = "generativelanguage.googleapis.com"
@@ -107,6 +108,7 @@ class GeminiAgent:
         tools: Sequence[ToolView],
         call_tool: ToolCaller,
         limits: RunLimits,
+        meter: UsageMeter | None = None,
     ) -> AgentRun:
         declarations = [
             types.FunctionDeclaration(
@@ -131,6 +133,8 @@ class GeminiAgent:
             except genai_errors.APIError as exc:
                 raise _outage(exc) or HarnessFailedError(_reason(exc)) from exc
             usage += _usage(response)
+            if meter is not None:
+                meter.add(_usage(response))
             reported = response.model_version or reported
             calls = response.function_calls or []
             if not calls:

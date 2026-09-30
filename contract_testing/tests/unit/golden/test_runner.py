@@ -21,6 +21,7 @@ from adapter_verify.golden.ports import (
     ToolCall,
     ToolCaller,
     ToolView,
+    UsageMeter,
 )
 from tests.unit.golden.support import Repo, read_task, run, write_task
 
@@ -216,12 +217,45 @@ async def test_token_limit_and_suite_budget(repo: Repo) -> None:
     assert results.usage.total == 60
 
 
+class _SpendsThenHangs(ScriptedAgent):
+    async def run(
+        self,
+        prompt: str,
+        tools: Sequence[ToolView],
+        call_tool: ToolCaller,
+        limits: RunLimits,
+        meter: UsageMeter | None = None,
+    ) -> AgentRun:
+        assert meter is not None
+        meter.add(TokenUsage(input_tokens=40, output_tokens=2))
+        await asyncio.sleep(5)
+        return await super().run(prompt, tools, call_tool, limits, meter)
+
+
+async def test_tokens_spent_before_a_timeout_still_count(repo: Repo) -> None:
+    repo.put_task(read_task(runs=1, threshold=1))
+    repo.write(
+        "golden_tasks/reader/agent.yaml",
+        {"agent_id": "reader", "harness": "scripted", "limits": {"timeout_s": 0.05}},
+    )
+    results = await run(repo, _SpendsThenHangs([GET]), ["order-inflight"])
+    (run1,) = results.tasks[0].runs
+    assert run1.error is ErrorKind.BUDGET_EXCEEDED
+    assert run1.usage.total == 42
+    assert results.usage.total == 42
+
+
 class _SlowAgent(ScriptedAgent):
     async def run(
-        self, prompt: str, tools: Sequence[ToolView], call_tool: ToolCaller, limits: RunLimits
+        self,
+        prompt: str,
+        tools: Sequence[ToolView],
+        call_tool: ToolCaller,
+        limits: RunLimits,
+        meter: UsageMeter | None = None,
     ) -> AgentRun:
         await asyncio.sleep(5)
-        return await super().run(prompt, tools, call_tool, limits)
+        return await super().run(prompt, tools, call_tool, limits, meter)
 
 
 class _BrokenAgent(ScriptedAgent):
@@ -230,9 +264,14 @@ class _BrokenAgent(ScriptedAgent):
         self._error = error or RuntimeError("agent crashed")
 
     async def run(
-        self, prompt: str, tools: Sequence[ToolView], call_tool: ToolCaller, limits: RunLimits
+        self,
+        prompt: str,
+        tools: Sequence[ToolView],
+        call_tool: ToolCaller,
+        limits: RunLimits,
+        meter: UsageMeter | None = None,
     ) -> AgentRun:
-        del prompt, tools, call_tool, limits
+        del prompt, tools, call_tool, limits, meter
         raise self._error
 
 

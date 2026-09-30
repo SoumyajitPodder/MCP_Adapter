@@ -36,6 +36,7 @@ from adapter_verify.golden.ports import (
     ToolCall,
     ToolCaller,
     ToolView,
+    UsageMeter,
 )
 
 NVIDIA_BASE_URL: Final = "https://integrate.api.nvidia.com/v1"
@@ -232,6 +233,7 @@ class NvidiaAgent:
         tools: Sequence[ToolView],
         call_tool: ToolCaller,
         limits: RunLimits,
+        meter: UsageMeter | None = None,
     ) -> AgentRun:
         names = {wire_name(t.name): t.name for t in tools}
         if len(names) != len(tools):
@@ -258,6 +260,8 @@ class NvidiaAgent:
         for _ in range(limits.max_tool_calls + 1):
             data = await _call(self._models, {**body, "messages": messages}, judge=False)
             usage += _usage(data)
+            if meter is not None:
+                meter.add(_usage(data))
             reported = data.get("model") or reported
             message = _message(data)
             calls = message.get("tool_calls") or []
