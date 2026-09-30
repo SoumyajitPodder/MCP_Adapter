@@ -146,7 +146,8 @@ class PostgresIdempotencyStore:
                     return None
                 await conn.execute(
                     "UPDATE idempotency_records SET state = $4, result_ref = $5, "
-                    "error_code = $6, lease_expires_at = NULL, updated_at = $7 "
+                    "error_code = $6, lease_expires_at = NULL, updated_at = $7, "
+                    "expires_at = $8 "
                     "WHERE agent_id = $1 AND tool = $2 AND idem_key = $3",
                     k.agent_id,
                     k.tool,
@@ -155,6 +156,7 @@ class PostgresIdempotencyStore:
                     t.result_ref,
                     None if t.error_code is None else t.error_code.value,
                     t.at,
+                    t.expires_at,
                 )
                 return IdemState(previous)
 

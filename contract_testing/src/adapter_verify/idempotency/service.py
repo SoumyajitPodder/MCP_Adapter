@@ -384,6 +384,7 @@ class IdempotencyStage:
         )
 
     async def _release(self, reservation: Reservation) -> None:
+        now = self._observer.clock.now()
         try:
             await self._store.transition(
                 Transition(
@@ -391,7 +392,8 @@ class IdempotencyStage:
                     attempt_id=reservation.attempt_id,
                     from_states=_OPEN,
                     to_state=IdemState.FAILED_RETRYABLE,
-                    at=self._observer.clock.now(),
+                    at=now,
+                    expires_at=now + self._timing.retention_for(reservation.key.tool),
                 )
             )
         except IdempotencyStoreUnavailableError:
@@ -428,6 +430,7 @@ class IdempotencyStage:
                 and result.delivery is DeliveryStatus.ACKED
                 and settlement.state is IdemState.COMPLETED
             )
+            now = observer.clock.now()
             transition = Transition(
                 key=attempt.key,
                 attempt_id=attempt.attempt_id,
@@ -435,7 +438,8 @@ class IdempotencyStage:
                 to_state=settlement.state,
                 result_ref=ref,
                 error_code=settlement.stored_error,
-                at=observer.clock.now(),
+                at=now,
+                expires_at=now + self._timing.retention_for(ctx.tool),
             )
             try:
                 previous = await self._store.transition(transition)

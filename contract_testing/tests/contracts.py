@@ -57,13 +57,17 @@ def _reservation(key: str = "k-1", *, fp: bytes = b"\x01" * 32, lease_s: int = 3
     )
 
 
+_SETTLED = _T0 + timedelta(seconds=1)
+
+
 def _transition(r: Reservation, to: IdemState, *states: IdemState, **kw: Any) -> Transition:
     return Transition(
         key=r.key,
         attempt_id=r.attempt_id,
         from_states=frozenset(states or {IdemState.RESERVED}),
         to_state=to,
-        at=_T0 + timedelta(seconds=1),
+        at=_SETTLED,
+        expires_at=_SETTLED + timedelta(hours=72),
         **kw,
     )
 
@@ -100,6 +104,8 @@ async def idempotency_store_contract(  # noqa: PLR0915 - one scenario, in order
         "payload:1",
         None,
     )
+    # Settling restarts retention: the replay window runs from the outcome, not the reservation.
+    assert done.expires_at == _SETTLED + timedelta(hours=72)
     assert await store.transition(_transition(first, IdemState.UNKNOWN)) is None
 
     # Re-reserve only a FAILED_RETRYABLE row with the same fingerprint; rotates the attempt.

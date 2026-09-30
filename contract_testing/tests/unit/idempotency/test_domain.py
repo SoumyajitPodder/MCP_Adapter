@@ -192,5 +192,21 @@ def test_timing_overrides_and_validation() -> None:
     assert timing.retention_for("other") == timedelta(hours=72)
     with pytest.raises(ValidationError, match="positive"):
         Timing(lease_s=30, retention_h=72, lease_overrides_s={"t": 0})
-    with pytest.raises(ValidationError, match="longer than every lease"):
-        Timing(lease_s=3_600, retention_h=1, lease_overrides_s={"t": 3_601})
+    with pytest.raises(ValidationError, match="at most"):
+        Timing(lease_s=30, retention_h=72, lease_overrides_s={"t": 3_601})
+    with pytest.raises(ValidationError, match="longer than the lease"):
+        Timing(lease_s=3_600, retention_h=1)  # equal is not longer
+    with pytest.raises(ValidationError, match=r"longer than the lease \(tool t\)"):
+        Timing(
+            lease_s=30,
+            retention_h=72,
+            lease_overrides_s={"t": 3_600},
+            retention_overrides_h={"t": 1},
+        )
+    # Pairs are checked per tool: a long lease on one tool and a short retention on another.
+    Timing(
+        lease_s=30,
+        retention_h=72,
+        lease_overrides_s={"slow.tool": 3_600},
+        retention_overrides_h={"cheap.tool": 1},
+    )

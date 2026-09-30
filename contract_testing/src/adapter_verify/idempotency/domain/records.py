@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 from enum import StrEnum
-from typing import Self
+from typing import Final, Self
 from uuid import UUID
 
 from pydantic import AwareDatetime, Field, model_validator
@@ -106,13 +106,20 @@ class Transition(FrozenModel):
     result_ref: str | None = None
     error_code: ErrorCode | None = None
     at: AwareDatetime
+    expires_at: AwareDatetime = Field(
+        description="New end of retention: a settled key is kept for its full retention."
+    )
+
+
+_MAX_LEASE_S: Final = 3_600
+_MAX_RETENTION_H: Final = 24 * 365
 
 
 class Timing(FrozenModel):
     """Lease and retention, with per-tool overrides from adapter config (M3-Q2)."""
 
-    lease_s: int = Field(ge=1, le=3_600)
-    retention_h: int = Field(ge=1, le=24 * 365)
+    lease_s: int = Field(ge=1, le=_MAX_LEASE_S)
+    retention_h: int = Field(ge=1, le=_MAX_RETENTION_H)
     lease_overrides_s: dict[str, int] = Field(default_factory=dict)
     retention_overrides_h: dict[str, int] = Field(default_factory=dict)
 
@@ -123,9 +130,15 @@ class Timing(FrozenModel):
         if min(leases) < 1 or min(retentions) < 1:
             msg = "leases and retentions must be positive"
             raise ValueError(msg)
-        if max(leases) > min(retentions) * 3_600:
-            msg = "retention must be longer than every lease"
+        if max(leases) > _MAX_LEASE_S or max(retentions) > _MAX_RETENTION_H:
+            msg = f"leases are at most {_MAX_LEASE_S} s and retentions {_MAX_RETENTION_H} h"
             raise ValueError(msg)
+        # Each tool's lease against that tool's retention, not the extremes across tools.
+        for tool in {None, *self.lease_overrides_s, *self.retention_overrides_h}:
+            name = "" if tool is None else tool
+            if self.lease_for(name) >= self.retention_for(name):
+                msg = f"retention must be longer than the lease (tool {tool or 'default'})"
+                raise ValueError(msg)
         return self
 
     def lease_for(self, tool: str) -> timedelta:

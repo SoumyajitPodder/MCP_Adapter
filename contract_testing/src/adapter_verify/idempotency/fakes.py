@@ -88,6 +88,7 @@ class MemoryIdempotencyStore:
                 "result_ref": transition.result_ref,
                 "error_code": transition.error_code,
                 "lease_expires_at": None,
+                "expires_at": transition.expires_at,
                 "updated_at": transition.at,
             }
         )
