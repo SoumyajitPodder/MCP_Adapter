@@ -305,6 +305,15 @@ async def test_sentinel_in_anything_the_agent_says_fails_the_run(repo: Repo) -> 
     assert results.tasks[0].runs[0].error is ErrorKind.SENTINEL_LEAK
 
 
+@pytest.mark.sentinel_exempt  # the leak is planted on purpose and must be caught by the runner
+async def test_sentinel_leak_is_reported_even_when_the_run_also_errored(repo: Repo) -> None:
+    egress = RecordingEgressGuard()
+    egress.attempts.append("api.example.invalid")
+    agent = ScriptedAgent([GET], answer=f"token {SENTINEL_SECRET_PREFIX}orders/read")
+    results = await run(repo, agent, ["order-inflight"], egress=egress)
+    assert results.tasks[0].runs[0].error is ErrorKind.SENTINEL_LEAK
+
+
 async def test_repeat_failure_on_unchanged_inputs_recommends_quarantine(repo: Repo) -> None:
     failing = ScriptedAgent([])
     first = await run(repo, failing, ["order-inflight"])

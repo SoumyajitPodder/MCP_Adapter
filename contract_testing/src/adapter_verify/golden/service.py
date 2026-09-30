@@ -250,11 +250,13 @@ class GoldenRunner:
                 attempt.failure = safe_exception_summary(exc)
         attempt.blocked = list(blocked)
         model = None if attempt.agent_run is None else attempt.agent_run.model
+        # A leak is checked first: it is the most serious outcome, and a run that also timed out
+        # or broke must not hide it.
+        if SENTINEL_SECRET_PREFIX in attempt.visible_text() + session.observed():
+            return attempt.error(ErrorKind.SENTINEL_LEAK, "a sentinel secret surfaced"), model
         early = attempt.early_error()
         if early is not None:
             return early, model
-        if SENTINEL_SECRET_PREFIX in attempt.visible_text() + session.observed():
-            return attempt.error(ErrorKind.SENTINEL_LEAK, "a sentinel secret surfaced"), model
         failure = (
             check_calls(task, attempt.recorder.records)
             or check_sequence(task, attempt.recorder.records)
@@ -349,7 +351,7 @@ class _Attempt:
         return self.record(RunOutcome.ERROR, error=kind, detail=detail, **extra)
 
     def early_error(self) -> RunRecord | None:
-        """Ways a run ends before assessment, most serious first."""
+        """Ways a run ends before assessment, most serious first (after a sentinel leak)."""
         limits = self.limits
         if self.blocked:
             return self.error(ErrorKind.EGRESS_BLOCKED, ", ".join(sorted(set(self.blocked))))
