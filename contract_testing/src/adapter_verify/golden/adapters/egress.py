@@ -7,11 +7,18 @@ model key runs in CI; DESIGN.md D-074).
 """
 
 import socket
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-_LOOPBACK_SELF_PIPE = frozenset({"127.0.0.1", "::1"})
+# asyncio's own wake-up socket pair connects to loopback on Windows only. Elsewhere loopback is
+# checked like any host, so local services (databases, dev servers) aren't reachable either.
+_LOOPBACK_SELF_PIPE = frozenset({"127.0.0.1", "::1"}) if sys.platform == "win32" else frozenset()
+
+
+class EgressBlockedError(OSError):
+    """A connection the guard refused. Clients must not retry it."""
 
 
 class SocketEgressGuard:
@@ -38,7 +45,7 @@ class SocketEgressGuard:
             if host not in allowed and host not in resolved:
                 blocked.append(host)
                 msg = f"egress blocked: {host}"
-                raise OSError(msg)
+                raise EgressBlockedError(msg)
 
         def getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             check(name_of(host))
@@ -49,7 +56,6 @@ class SocketEgressGuard:
         def connect(self: socket.socket, address: Any) -> None:  # noqa: ANN401
             if self.family in {socket.AF_INET, socket.AF_INET6}:
                 host = host_of(address)
-                # asyncio's own wake-up socket pair on Windows connects to loopback.
                 if host not in _LOOPBACK_SELF_PIPE:
                     check(host)
             real_connect(self, address)

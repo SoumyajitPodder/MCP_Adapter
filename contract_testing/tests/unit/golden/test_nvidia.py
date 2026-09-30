@@ -11,6 +11,7 @@ from pydantic import SecretStr, ValidationError
 from adapter_kernel.errors import AdapterError, ErrorCode
 from adapter_kernel.meta import ResponseMeta
 from adapter_kernel.pipeline import ToolFailure, ToolSuccess
+from adapter_verify.golden.adapters.egress import EgressBlockedError
 from adapter_verify.golden.adapters.llm import idempotency_key
 from adapter_verify.golden.adapters.nvidia import (
     ChatApiError,
@@ -207,6 +208,10 @@ async def test_judge_failures(reply: dict[str, Any] | Exception, raised: type[Ex
         await NvidiaJudge(FakeCompletions([reply]), model="j").grade("r", EVIDENCE)
 
 
+async def _record(sleeps: list[float], seconds: float) -> None:
+    sleeps.append(seconds)
+
+
 def _client(handler: Any, sleeps: list[float], attempts: int = 3) -> HttpxChatCompletions:
     async def sleep(seconds: float) -> None:
         sleeps.append(seconds)
@@ -255,8 +260,61 @@ async def test_client_gives_up_with_the_code_only() -> None:
     assert caught.value.outage is False
 
     not_object = _client(lambda _r: httpx.Response(200, json=[1]), [])
-    with pytest.raises(ChatApiError, match=r"^200 OK$"):
+    with pytest.raises(ChatTransportError, match="not a JSON object"):
         await not_object.create({})
+
+    gateway_page = _client(lambda _r: httpx.Response(200, text="<html>busy</html>"), [])
+    with pytest.raises(ChatTransportError, match="not JSON"):
+        await gateway_page.create({})
+
+
+async def test_client_stops_retrying_when_the_wait_cannot_help() -> None:
+    too_long = _client(lambda _r: httpx.Response(429, headers={"retry-after": "600"}), [])
+    with pytest.raises(
+        ChatApiError, match=r"^429 Too Many Requests$"
+    ):  # waiting 5 s would only be refused again
+        await too_long.create({})
+
+    sleeps: list[float] = []
+    budget = HttpxChatCompletions(
+        SecretStr("test-key-not-real"),
+        base_url="https://api.example.invalid/v1/",
+        attempts=10,
+        initial_delay_s=4.0,
+        max_delay_s=8.0,
+        retry_budget_s=10.0,
+        sleep=lambda s: _record(sleeps, s),
+        transport=httpx.MockTransport(lambda _r: httpx.Response(503)),
+    )
+    with pytest.raises(ChatApiError, match=r"^503 Service Unavailable$"):
+        await budget.create({})
+    assert sleeps == [4.0]  # 4 + 8 would pass the 10 s budget
+
+
+async def test_retry_after_zero_is_honoured() -> None:
+    statuses = iter([429, 200])
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        status = next(statuses)
+        if status == 200:
+            return httpx.Response(200, json={})
+        return httpx.Response(status, headers={"retry-after": "0"})
+
+    sleeps: list[float] = []
+    await _client(handler, sleeps).create({})
+    assert sleeps == [0.0]
+
+
+async def test_client_does_not_retry_a_connection_the_egress_guard_refused() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        blocked = httpx.ConnectError("blocked", request=request)
+        blocked.__cause__ = EgressBlockedError("egress blocked: api.example.invalid")
+        raise blocked
+
+    sleeps: list[float] = []
+    with pytest.raises(ChatTransportError, match=r"^ConnectError$"):
+        await _client(handler, sleeps).create({})
+    assert sleeps == []
 
 
 async def test_client_retries_transport_errors_then_reports_the_type() -> None:

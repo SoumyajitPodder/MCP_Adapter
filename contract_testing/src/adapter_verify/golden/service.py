@@ -5,6 +5,7 @@ import asyncio
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Final
 
 from adapter_kernel.errors import AdapterError, ErrorCode
 from adapter_kernel.meta import ResponseMeta
@@ -52,6 +53,9 @@ from adapter_verify.golden.ports import (
     ToolCall,
 )
 from adapter_verify.observability.domain.exceptions import safe_exception_summary
+
+# A judge that hasn't answered by then is treated as unavailable: the run is undecided (D-094).
+_JUDGE_TIMEOUT_S: Final = 180.0
 
 
 @dataclass(frozen=True)
@@ -213,7 +217,10 @@ class GoldenRunner:
         if self._judge is None:  # pragma: no cover - callers check first
             return _NoVerdict("no judge")
         try:
-            return await self._judge.grade(rubric, evidence)
+            async with asyncio.timeout(_JUDGE_TIMEOUT_S):
+                return await self._judge.grade(rubric, evidence)
+        except TimeoutError:
+            return _NoVerdict(f"no verdict within {_JUDGE_TIMEOUT_S:.0f} s", outage=True)
         except ModelUnavailableError as exc:
             return _NoVerdict(str(exc), outage=True)
         except JudgeUnavailableError as exc:

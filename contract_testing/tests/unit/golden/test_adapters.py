@@ -9,6 +9,7 @@ from pydantic import SecretStr, ValidationError
 
 from adapter_verify import composition
 from adapter_verify.common.adapters.yamlfile import ConfigFileError
+from adapter_verify.golden.adapters import egress
 from adapter_verify.golden.adapters.egress import SocketEgressGuard
 from adapter_verify.golden.adapters.files import (
     load_calibration,
@@ -136,7 +137,22 @@ def test_egress_guard_blocks_and_restores() -> None:
     assert socket.getaddrinfo is real
 
 
-def test_egress_guard_lets_loopback_self_pipes_through() -> None:
+def test_egress_guard_blocks_loopback_outside_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(egress, "_LOOPBACK_SELF_PIPE", frozenset())
+    with SocketEgressGuard().guard() as blocked:
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(egress.EgressBlockedError):
+                client.connect(("127.0.0.1", 9))
+        finally:
+            client.close()
+    assert blocked == ["127.0.0.1"]
+
+
+def test_egress_guard_lets_windows_loopback_self_pipes_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(egress, "_LOOPBACK_SELF_PIPE", frozenset({"127.0.0.1", "::1"}))
     with SocketEgressGuard().guard() as blocked:
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.bind(("127.0.0.1", 0))

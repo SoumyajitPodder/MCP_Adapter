@@ -16,6 +16,7 @@ from pydantic import SecretStr
 
 from adapter_kernel.errors import ERROR_SPECS, ErrorCode
 from adapter_kernel.jsontypes import JsonObject
+from adapter_verify.golden.adapters.egress import EgressBlockedError
 from adapter_verify.golden.adapters.llm import (
     JUDGE_INSTRUCTIONS,
     REFERENCE_HARNESS,
@@ -64,7 +65,8 @@ class ChatApiError(Exception):
 
 
 class ChatTransportError(Exception):
-    """No HTTP response at all (connection, timeout). ``str()`` is the exception type only."""
+    """No usable HTTP response (connection, timeout, a body that isn't a JSON object).
+    ``str()`` is the exception type or a fixed reason only."""
 
 
 class ChatCompletions(Protocol):
@@ -75,6 +77,12 @@ class ChatCompletions(Protocol):
 
 class HttpxChatCompletions:
     """``POST {base_url}/chat/completions``, retrying quota and server errors with backoff.
+
+    Retries stop early, raising the last error, when the next wait would exceed ``max_delay_s``
+    (a longer ``Retry-After`` would only be refused again) or take the total wait past
+    ``retry_budget_s``. The budget keeps retries inside a run's timeout, so a sustained outage
+    ends as ``model_unavailable`` instead of a run timeout (D-094). A connection the egress guard
+    refused is not retried.
 
     A fresh connection pool per request: runs are sequential and few, and nothing can close a
     shared pool under a later call (the Gemini lesson, Session 19).
@@ -89,6 +97,7 @@ class HttpxChatCompletions:
         attempts: int = 5,
         initial_delay_s: float = 2.0,
         max_delay_s: float = 60.0,
+        retry_budget_s: float = 30.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
@@ -98,11 +107,13 @@ class HttpxChatCompletions:
         self._attempts = attempts
         self._delay = initial_delay_s
         self._max_delay = max_delay_s
+        self._budget = retry_budget_s
         self._sleep = sleep
         self._transport = transport
 
     async def create(self, body: dict[str, Any]) -> dict[str, Any]:
         delay = self._delay
+        waited = 0.0
         for attempt in range(1, self._attempts + 1):
             try:
                 async with httpx.AsyncClient(
@@ -117,26 +128,51 @@ class HttpxChatCompletions:
                         },
                     )
             except httpx.TransportError as exc:
-                if attempt == self._attempts:
-                    raise ChatTransportError(type(exc).__name__) from None
-                await self._sleep(delay)
-                delay = min(delay * 2, self._max_delay)
-                continue
-            if response.status_code == httpx.codes.OK:
-                data = response.json()
-                if not isinstance(data, dict):
-                    raise ChatApiError(response.status_code)
-                return data
-            if response.status_code not in _RETRY_STATUSES or attempt == self._attempts:
-                raise ChatApiError(response.status_code)
-            await self._sleep(min(_retry_after(response) or delay, self._max_delay))
+                error: Exception = ChatTransportError(type(exc).__name__)
+                wait = None if _egress_blocked(exc) else delay
+            else:
+                if response.status_code == httpx.codes.OK:
+                    return _json_body(response)
+                error = ChatApiError(response.status_code)
+                retryable = response.status_code in _RETRY_STATUSES
+                after = _retry_after(response)
+                wait = (delay if after is None else after) if retryable else None
+            if (
+                wait is None
+                or attempt == self._attempts
+                or wait > self._max_delay
+                or waited + wait > self._budget
+            ):
+                raise error from None
+            await self._sleep(wait)
+            waited += wait
             delay = min(delay * 2, self._max_delay)
         raise AssertionError  # pragma: no cover - the loop always returns or raises
 
 
+def _egress_blocked(exc: BaseException) -> bool:
+    seen: BaseException | None = exc
+    while seen is not None:
+        if isinstance(seen, EgressBlockedError):
+            return True
+        seen = seen.__cause__ or seen.__context__
+    return False
+
+
+def _json_body(response: httpx.Response) -> dict[str, Any]:
+    try:
+        data = response.json()
+    except ValueError:
+        raise ChatTransportError("response body is not JSON") from None
+    if not isinstance(data, dict):
+        raise ChatTransportError("response body is not a JSON object")
+    return data
+
+
 def _retry_after(response: httpx.Response) -> float | None:
-    value = response.headers.get("retry-after", "")
-    return float(value) if value.isdigit() else None
+    """Seconds from ``Retry-After``; None when absent or an HTTP date (then backoff applies)."""
+    value = response.headers.get("retry-after", "").strip()
+    return float(value) if value.isascii() and value.isdigit() else None
 
 
 def _usage(data: dict[str, Any]) -> TokenUsage:

@@ -7,6 +7,7 @@ import pytest
 from adapter_kernel.errors import ErrorCode
 from adapter_kernel.pipeline import ToolFailure, ToolSuccess
 from adapter_verify.access.fakes import SENTINEL_SECRET_PREFIX
+from adapter_verify.golden import service
 from adapter_verify.golden.domain.assertions import Layer
 from adapter_verify.golden.domain.judge import AnswerEvidence, CalibrationCase, JudgeVerdict
 from adapter_verify.golden.domain.results import ErrorKind, RunOutcome, TaskVerdict, TokenUsage
@@ -277,6 +278,30 @@ async def test_judge_model_outage_leaves_the_task_incomplete(repo: Repo) -> None
     run1 = results.tasks[0].runs[0]
     assert run1.error is ErrorKind.MODEL_UNAVAILABLE
     assert run1.detail == "judge model unavailable: 429 RESOURCE_EXHAUSTED"
+    assert results.tasks[0].verdict is TaskVerdict.INCOMPLETE
+
+
+class _HangingJudge(ScriptedJudge):
+    async def grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict:
+        if self.graded:  # calibration answers; grading the run hangs
+            await asyncio.sleep(5)
+        return await super().grade(rubric, evidence)
+
+
+async def test_a_judge_that_never_answers_is_unavailable(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(service, "_JUDGE_TIMEOUT_S", 0.05)
+    repo.put_task(read_task(expect_answer={"rubric": "r"}, runs=1, threshold=1))
+    results = await run(
+        repo,
+        ScriptedAgent([GET]),
+        ["order-inflight"],
+        judge=_HangingJudge([GOOD, GOOD]),
+        calibration=CASES,
+    )
+    run1 = results.tasks[0].runs[0]
+    assert run1.error is ErrorKind.MODEL_UNAVAILABLE
     assert results.tasks[0].verdict is TaskVerdict.INCOMPLETE
 
 
