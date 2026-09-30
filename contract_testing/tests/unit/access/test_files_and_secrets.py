@@ -41,12 +41,16 @@ def test_policy_file_errors_become_documents(tmp_path: Path) -> None:
     (tmp_path / "date.yaml").write_text(
         "agent_id: x\nowner: t\nscope: read\ngrants: []\nreviewed: 2026-01-01\n", encoding="utf-8"
     )
+    (tmp_path / "latin1.yaml").write_bytes(b"agent_id: caf\xe9\n")
+    (tmp_path / "dir.yaml").mkdir()  # reading it raises IsADirectoryError
     docs = {d.file_name: d for d in load_policy_documents(tmp_path)}
     assert docs["ok.yaml"].policy is not None
     assert docs["ok.yaml"].policy.scope is Scope.READ
     assert docs["bad-yaml.yaml"].load_error == "not valid YAML"
     assert docs["bad-field.yaml"].load_error == "invalid fields: scope"
     assert "not plain JSON" in (docs["date.yaml"].load_error or "")
+    assert docs["latin1.yaml"].load_error == "unreadable: UnicodeDecodeError"
+    assert docs["dir.yaml"].load_error == "unreadable: IsADirectoryError"
 
 
 def test_catalog_errors_raise(tmp_path: Path) -> None:

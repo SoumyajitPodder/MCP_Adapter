@@ -18,6 +18,11 @@ def load_policy_documents(directory: Path) -> list[PolicyDocument]:
             documents.append(PolicyDocument(file_name=path.name, policy=policy, load_error=None))
         except ConfigFileError as exc:
             documents.append(PolicyDocument(file_name=path.name, policy=None, load_error=str(exc)))
+        except (OSError, UnicodeDecodeError) as exc:
+            # Unreadable is a load error like unparseable: startup fails, a reload keeps the
+            # last good set.
+            error = f"unreadable: {type(exc).__name__}"
+            documents.append(PolicyDocument(file_name=path.name, policy=None, load_error=error))
     return documents
 
 
