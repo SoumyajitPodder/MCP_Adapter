@@ -47,6 +47,58 @@ export const SHAPES = {
   }
 };
 
+// A plain default shape for a newly added API, in whichever style (REST or
+// FILE) it was added as. Every existing drift injector assumes four
+// canonical fields (an id, a status enum, a secondary identifier, and a
+// timestamp), so this matches that shape rather than inventing a new one —
+// that's what lets every injector work unmodified on any binding, hand
+// authored or added at runtime.
+export function makeGenericShape(kind) {
+  // Source names are deliberately camelCase and distinct from their
+  // canonical snake_case targets (recordId -> id, not id -> id) — a source
+  // name that's identical to its target either way you flip its case
+  // (like a bare "id" or "status") makes the rename_case injector and the
+  // version-migration case-flip both silent no-ops, which is exactly the
+  // bug that shipped here the first time.
+  const fields = [F('id', 'recordId'), F('status', 'statusCode'), F('ref_id', 'refId'), F('updated_at', 'updatedAt')];
+  const enumMap = { active: 'ACTIVE', inactive: 'INACTIVE', pending: 'PENDING' };
+  // colOrder is keyed by canonical name, not by source name — cell()
+  // looks columns up by canon via `fields`, the same way the hand-authored
+  // inventory.snapshot shape does it.
+  return kind === 'FILE'
+    ? { envelope: null, dateFormat: 'ISO', delimiter: ',', colOrder: ['id', 'status', 'ref_id', 'updated_at'], extra: [], fields, enumMap }
+    : { envelope: null, dateFormat: 'ISO', delimiter: ',', colOrder: [], extra: [], fields, enumMap };
+}
+
+// The name the version after `v` would have, so a graceful sunset or an
+// overnight cutover can be simulated on any binding, not just the two with
+// a hand-authored v3 already waiting for them.
+function nextVersionName(v) {
+  const m = /^v(\d+)$/.exec(v);
+  return m ? 'v' + (parseInt(m[1], 10) + 1) : v + '-next';
+}
+
+// When no hand-authored next-version shape exists for this binding (true
+// for every binding added at runtime, and for inventory.snapshot which
+// never gets a version-drift injector), derive a plausible one instead of
+// refusing to simulate a migration at all: flip the case of every field
+// name and the envelope, leaving the meaning of each field and its codes
+// untouched. That's enough for the automatic mapping proposer to find a
+// confident match on every field, which is the point — a new API should
+// be able to demonstrate a clean version migration immediately, without
+// someone hand-authoring a second shape for it first.
+function deriveNextShape(shape) {
+  return {
+    envelope: shape.envelope ? null : 'data',
+    dateFormat: shape.dateFormat === 'US' ? 'ISO' : 'US',
+    delimiter: shape.delimiter,
+    colOrder: shape.colOrder.slice(),
+    extra: shape.extra.slice(),
+    fields: shape.fields.map(f => ({ canon: f.canon, src: toggleCase(f.src), vt: f.vt })),
+    enumMap: Object.assign({}, shape.enumMap)
+  };
+}
+
 /* ---- ground truth + rendering ----
    "truth" is what the upstream really holds, independent of its current
    shape. Rendering (renderRest / renderFile) is what turns that truth into
@@ -125,17 +177,21 @@ function renderFile(b, shape, ts) {
 
 // The one function every other module calls to "hit" an upstream. Returns
 // an HTTP-shaped result (status, headers, body) exactly like a real
-// integration would give an adapter.
+// integration would give an adapter. `sunsetVersion` (set by the sunset /
+// version_bump injectors below, not hardcoded here) is whichever version
+// was primary at the moment a retirement was announced — so this works
+// the same way regardless of what that version happens to be named.
 export function fetchUpstream(b, ver, n = 5) {
   const u = b.upstream;
-  if (b.kind === 'REST' && ver === 'v2' && u.sunsetDay != null && state.day >= u.sunsetDay) {
+  const retiring = b.kind === 'REST' && u.sunsetDay != null && ver === u.sunsetVersion;
+  if (retiring && state.day >= u.sunsetDay) {
     return { status: 410, headers: {}, ver, truths: [] };
   }
   const shape = u.versions[ver];
   if (!shape) return { status: 404, headers: {}, ver, truths: [] };
   const ts = sampleTruths(b, shape, n);
   const headers = {};
-  if (b.kind === 'REST' && ver === 'v2' && u.sunsetDay != null) headers.Sunset = 'day ' + u.sunsetDay;
+  if (retiring) headers.Sunset = 'day ' + u.sunsetDay;
   return b.kind === 'FILE'
     ? { status: 200, headers, ver, truths: ts, text: renderFile(b, shape, ts) }
     : { status: 200, headers, ver, truths: ts, items: renderRest(b, shape, ts) };
@@ -173,25 +229,33 @@ export const INJ = [
     apply: (b, s) => { s.fields = s.fields.filter(f => f.canon !== b.canon[3]); s.colOrder = s.colOrder.filter(c => c !== b.canon[3]); } },
   { id: 'delimiter', label: 'Change the file delimiter', kinds: ['FILE'],
     apply: (b, s) => { s.delimiter = '|'; } },
-  { id: 'sunset', label: 'Announce v2 sunset in 6 days, release v3', kinds: ['REST'], custom: true,
-    customLog: 'upstream announced sunset of v2 (6 days) and released v3',
+  { id: 'sunset', label: 'Announce current version sunset in 6 days, release the next version', kinds: ['REST'], custom: true,
+    customLog: 'upstream announced a sunset (6 days) and released the next version',
     apply: (b) => {
       if (b.upstream.sunsetDay != null) return;
+      const cur = primary(b).upstreamVersion, next = nextVersionName(cur);
+      if (b.upstream.versions[next]) return;
+      const nextShape = (SHAPES[b.tool] && SHAPES[b.tool][next]) ? clone(SHAPES[b.tool][next]) : deriveNextShape(b.upstream.versions[cur]);
+      b.upstream.sunsetVersion = cur;
       b.upstream.sunsetDay = state.day + 6;
-      b.upstream.versions.v3 = clone(SHAPES[b.tool].v3);
-      b.pristine.v3 = clone(SHAPES[b.tool].v3);
+      b.upstream.versions[next] = nextShape;
+      b.pristine[next] = clone(nextShape);
     } },
   // Distinct from the graceful sunset above: the vendor cuts the old
   // endpoint over immediately, with no advance notice at all. The primary
   // sees a 410 on its very next call, with no prior REVIEW-level warning —
   // this exercises the unplanned/BREAKING path instead of the planned one.
-  { id: 'version_bump', label: 'API endpoint changed overnight (v2 gone, no warning)', kinds: ['REST'], custom: true,
-    customLog: 'upstream cut over to a new API version overnight — v2 is gone effective immediately, no warning header was ever shown',
+  { id: 'version_bump', label: 'API endpoint changed overnight (current version gone, no warning)', kinds: ['REST'], custom: true,
+    customLog: 'upstream cut over to a new API version overnight — the current version is gone effective immediately, no warning header was ever shown',
     apply: (b) => {
       if (b.upstream.sunsetDay != null) return;
+      const cur = primary(b).upstreamVersion, next = nextVersionName(cur);
+      if (b.upstream.versions[next]) return;
+      const nextShape = (SHAPES[b.tool] && SHAPES[b.tool][next]) ? clone(SHAPES[b.tool][next]) : deriveNextShape(b.upstream.versions[cur]);
+      b.upstream.sunsetVersion = cur;
       b.upstream.sunsetDay = state.day;
-      b.upstream.versions.v3 = clone(SHAPES[b.tool].v3);
-      b.pristine.v3 = clone(SHAPES[b.tool].v3);
+      b.upstream.versions[next] = nextShape;
+      b.pristine[next] = clone(nextShape);
     } },
   // The dangerous case the LLD calls out separately from ordinary drift:
   // brand-new records report a perfectly ordinary status using an

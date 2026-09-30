@@ -6,10 +6,12 @@
 import { $ } from './dom.js';
 import { state } from '../state.js';
 import {
-  runBatch, liveCall, standUp, operatorMap,
+  runBatch, liveCall, beginMigration,
   promote, retire, deprecateContract, approve, reject, injectCanaryFault,
   activateScenario, queueDrift, cancelQueuedDrift
 } from '../core/lifecycle.js';
+import { addBinding, removeBinding } from '../core/registry.js';
+import { slugify } from '../core/utils.js';
 import { render, animate, renderClock, renderAuditTab } from './render.js';
 
 let autoTimer = null;
@@ -55,6 +57,12 @@ function stopAuto() {
   updateAutoBtn();
 }
 
+// Cards in the right panel can act on any binding, not just whichever one
+// happens to be selected in the sidebar — so actions that target a
+// specific adapter look the adapter up by id across every binding, rather
+// than assuming it belongs to the currently selected one.
+const findByAdapterId = id => state.bindings.find(bb => bb.adapters.some(x => x.id === id));
+
 // onReset is passed in by app.js rather than imported directly, so this
 // file never needs to import the composition root.
 export function bindEvents({ onReset }) {
@@ -78,14 +86,13 @@ export function bindEvents({ onReset }) {
       case 'stage': state.selStage = +arg; render(); break;
       case 'inject': queueDrift(b, arg); render(); break;
       case 'call': state.calls[b.id] = liveCall(b); render(); break;
-      case 'standup': standUp(b, arg); state.selStage = null; animate(); break;
-      case 'opmap': operatorMap(b, arg); state.selStage = null; animate(); break;
-      case 'promote': promote(b, b.adapters.find(x => x.id === arg)); render(); break;
-      case 'retire': retire(b, b.adapters.find(x => x.id === arg)); render(); break;
+      case 'startmigration': { const bb = state.bindings.find(x => x.id === t.dataset.binding); if (bb) beginMigration(bb, arg); state.selStage = null; animate(); break; }
+      case 'promote': { const bb = findByAdapterId(arg); if (bb) promote(bb, bb.adapters.find(x => x.id === arg)); render(); break; }
+      case 'retire': { const bb = findByAdapterId(arg); if (bb) retire(bb, bb.adapters.find(x => x.id === arg)); render(); break; }
+      case 'breakcanary': { const bb = findByAdapterId(arg); if (bb) injectCanaryFault(bb, bb.adapters.find(x => x.id === arg)); render(); break; }
       case 'deprecate': deprecateContract(arg); render(); break;
       case 'approve': approve(state.reviews.find(r => r.id === arg)); state.selStage = null; animate(); break;
       case 'reject': reject(state.reviews.find(r => r.id === arg)); render(); break;
-      case 'breakcanary': injectCanaryFault(b, b.adapters.find(x => x.id === arg)); render(); break;
       case 'viewbatch': state.selBatch = +arg; render(); break;
       case 'scenario': activateScenario(arg); render(); break;
       case 'cancelqueue': cancelQueuedDrift(arg); render(); break;
@@ -100,6 +107,35 @@ export function bindEvents({ onReset }) {
         render();
         break;
       case 'maintab': state.mainTab = arg; render(); break;
+      case 'addapi': {
+        const nameInput = $('#apiNameInput'), kindInput = $('#apiKindInput'), msg = $('#addApiMsg');
+        const name = nameInput.value.trim();
+        // Checked here, on the raw name, rather than left to addBinding:
+        // slugify() maps an empty string to the fallback id "api" so a
+        // blank name doesn't collide with itself on repeat submits, but
+        // that same fallback would silently swallow a genuinely blank
+        // submission instead of rejecting it.
+        const result = name ? addBinding({ id: slugify(name), displayName: name, kind: kindInput.value }) : { ok: false, reason: 'Give the API a name.' };
+        if (msg) {
+          msg.textContent = result.ok ? `Added "${result.binding.displayName}".` : result.reason;
+          msg.classList.toggle('errtext', !result.ok);
+        }
+        if (result.ok) { nameInput.value = ''; state.sel = result.binding.id; }
+        render();
+        break;
+      }
+      case 'removeapi': {
+        if (state.confirmRemove === arg) {
+          const result = removeBinding(arg);
+          state.confirmRemove = null;
+          const msg = $('#addApiMsg');
+          if (!result.ok && msg) { msg.textContent = result.reason; msg.classList.add('errtext'); }
+        } else {
+          state.confirmRemove = arg;
+        }
+        render();
+        break;
+      }
     }
   });
 

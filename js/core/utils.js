@@ -4,6 +4,11 @@
 // without creating a circular dependency.
 
 export const clone = o => JSON.parse(JSON.stringify(o));
+
+// A friendly API name like "Billing API" becomes an id like "billing_api" —
+// used when adding a new API, so the person naming it never has to think
+// about id syntax rules themselves.
+export const slugify = s => (s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'api';
 export const pad = n => String(n).padStart(2, '0');
 export const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -81,3 +86,33 @@ export const SEV = { COMPATIBLE: 0, REVIEW_REQUIRED: 1, BREAKING: 2, UNKNOWN: 3 
 // Lives here (not in core/adapters.js) so both the adapter module and the
 // simulator can use it without importing each other.
 export const primary = b => b.adapters.find(a => a.state === 'primary');
+
+const ROLE_WORD = {
+  primary: 'current version', tested: 'candidate, not yet live', canary: 'candidate in canary',
+  deprecated: 'previous version', retired: 'retired', rolled_back: 'rolled back'
+};
+
+// How many adapters this binding has pointed at the same upstream version —
+// used to disambiguate a second (or third) attempt at the same version
+// from the first, since "v3" alone stops being a unique label the moment a
+// migration is retried after a rollback.
+function attemptLabel(b, a) {
+  const sameVer = b.adapters.filter(x => x.upstreamVersion === a.upstreamVersion);
+  if (sameVer.length <= 1) return '';
+  const idx = sameVer.findIndex(x => x.id === a.id) + 1;
+  return ` (attempt ${idx})`;
+}
+
+// A short label for contexts that already group by state (the lifecycle
+// rail's lanes, for instance) — just the version and, if needed, which
+// attempt this is.
+export function versionLabel(b, a) {
+  return `${a.upstreamVersion}${attemptLabel(b, a)}`;
+}
+
+// A fuller label for contexts that span every state at once (the adapter
+// picker tabs on the Pipeline and Mapping views) — the version, which
+// attempt if that's ambiguous, and what it currently is to this binding.
+export function adapterLabel(b, a) {
+  return `${versionLabel(b, a)} — ${ROLE_WORD[a.state] || a.state}`;
+}

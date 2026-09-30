@@ -35,8 +35,10 @@ export function resetState() {
     rightOpen: true,
     scenarioQueue: [],
     qseq: 0,
+    reviewSeq: 0,
     activeScenarios: [],
-    auditQuery: { text: '', actor: 'all', group: 'all' }
+    auditQuery: { text: '', actor: 'all', group: 'all' },
+    confirmRemove: null
   };
 }
 

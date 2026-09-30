@@ -180,6 +180,12 @@ body.rightpanel-collapsed .rightpanel-pull{right:0}
 .autofix:last-child{border-bottom:0;padding-bottom:0}
 .rulenote{margin-top:4px;font-style:italic}
 
+/* APIs tab */
+.addapi-form{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.addapi-form input{flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+.addapi-form select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-weight:600}
+.errtext{color:var(--fail)}
+
 /* audit log */
 .auditbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
 .auditbar input{flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
@@ -272,6 +278,11 @@ pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-rad
 .rev ul{margin:4px 0 6px;padding-left:18px}
 .rev select{font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);max-width:100%}
 .rev .row{display:flex;gap:8px;margin-top:8px}
+.rev.migration{border-left:3px solid var(--accent)}
+.rev.migration p{margin:6px 0;font-size:13px;line-height:1.5}
+.migreason{color:var(--ink-2);font-style:italic;font-size:12.5px}
+.detail.migrate-pointer{border-color:var(--review);background:var(--review-bg);color:var(--ink)}
+.detail.migrate-pointer b{color:var(--review)}
 .kv{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;margin:3px 0}
 .empty{color:var(--ink-2);padding:6px 0}
 

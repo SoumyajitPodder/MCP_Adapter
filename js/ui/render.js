@@ -12,7 +12,7 @@
 
 import { $, esc } from './dom.js';
 import { state, CONTRACTS } from '../state.js';
-import { primary } from '../core/utils.js';
+import { primary, adapterLabel, versionLabel } from '../core/utils.js';
 import { health, untargeted, evalCandidate, withChoices } from '../core/lifecycle.js';
 import { INJ } from '../simulation/upstreams.js';
 import { SCENARIOS } from '../../data/scenarios.js';
@@ -22,7 +22,6 @@ const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
 
 const selB = () => state.bindings.find(b => b.id === state.sel);
 const selA = b => b.adapters.find(a => a.id === state.selAdapter && a.state !== 'retired') || primary(b);
-const short = a => a.id.split('/')[1];
 
 const pct = n => Math.round(n * 100);
 const confColor = score => score >= 0.8 ? 'var(--pass)' : score >= 0.6 ? 'var(--review)' : 'var(--fail)';
@@ -125,8 +124,8 @@ function renderBindings() {
   $('#bindings').innerHTML = state.bindings.map(b => {
     const h = health(b), p = primary(b);
     return `<button class="bnd ${b.id === state.sel ? 'sel' : ''}" data-act="sel" data-arg="${b.id}">
-      <div class="r1"><span class="nm">${b.tool}</span><span class="pill ${h}">${h}</span></div>
-      <div class="r2">${b.kind} from ${b.system}<br>serving ${short(p)} on upstream ${p.upstreamVersion}</div></button>`;
+      <div class="r1"><span class="nm">${esc(b.displayName || b.tool)}</span><span class="pill ${h}">${h}</span></div>
+      <div class="r2">${b.kind} from ${b.system}<br>serving ${versionLabel(b, p)}</div></button>`;
   }).join('');
 }
 
@@ -134,7 +133,7 @@ function renderSim() {
   const b = selB();
   const pending = id => state.scenarioQueue.some(q => q.bindingId === b.id && q.injectId === id);
   const versionPending = state.scenarioQueue.some(q => q.bindingId === b.id && INJ.find(i => i.id === q.injectId && i.custom));
-  $('#sim').innerHTML = `<p class="tiny" style="margin-bottom:8px">Applies to <b>${b.tool}</b> (${b.kind}). Each click adds to the drift queue above; the change lands at the next batch run, and can be cancelled until then.</p><div class="sim-grid">` +
+  $('#sim').innerHTML = `<p class="tiny" style="margin-bottom:8px">Applies to <b>${esc(b.displayName || b.tool)}</b> (${b.kind}). Each click adds to the drift queue above; the change lands at the next batch run, and can be cancelled until then.</p><div class="sim-grid">` +
     INJ.filter(i => i.kinds.includes(b.kind)).map(i => {
       const off = pending(i.id) || (i.custom && (b.upstream.sunsetDay != null || versionPending));
       return `<button class="btn sm ${i.custom ? 'warnish' : ''}" data-act="inject" data-arg="${i.id}" ${off ? 'disabled' : ''}>${i.label}</button>`;
@@ -188,31 +187,30 @@ function renderPipelineTab() {
   const symbol = { pass: '✓', warn: '!', fail: '×', skip: '–', pending: '·' };
   const selStage = state.selStage != null ? state.selStage : (run ? Math.max(0, run.stages.findIndex(s => s.status === 'fail' || s.status === 'warn')) : 0);
   const tabs = b.adapters.filter(x => x.state !== 'retired').map(x =>
-    `<button class="tab ${x.id === a.id ? 'sel' : ''}" data-act="seladapter" data-arg="${x.id}">${short(x)} on ${x.upstreamVersion} (${x.state})</button>`
+    `<button class="tab ${x.id === a.id ? 'sel' : ''}" data-act="seladapter" data-arg="${x.id}">${adapterLabel(b, x)}</button>`
   ).join('');
-  const un = untargeted(b);
-  let standBtn = '';
-  if (un.length) standBtn = un.map(v => `<button class="btn primary sm" data-act="standup" data-arg="${v}">Stand up adapter for ${v}</button>`).join(' ');
-  let failNote = '';
-  if (b.proposalFailed) {
-    failNote = `<div class="detail" style="border-color:var(--fail)"><h4>Automatic mapping for ${b.proposalFailed.ver} was refused</h4><ul>${b.proposalFailed.unresolved.map(u => `<li>${esc(u)}</li>`).join('')}</ul><p class="tiny" style="margin-top:6px">Confidence is too low to propose a mapping. A person writes it; the same tests and gates then apply.</p><div style="margin-top:8px"><button class="btn sm" data-act="opmap" data-arg="${b.proposalFailed.ver}">Apply operator-authored mapping for ${b.proposalFailed.ver}</button></div></div>`;
-  }
+  const openMigration = state.reviews.find(r => r.kind === 'migration' && r.bindingId === b.id && r.status === 'open');
+  const migratePointer = openMigration
+    ? `<div class="detail migrate-pointer"><b>This API needs attention.</b> ${esc(openMigration.reasonText)} Open <b>Reviews</b> in the right panel to see what's recommended.</div>`
+    : '';
   const st = run ? run.stages[selStage] : null;
   const call = state.calls[b.id];
 
+  // This view is read-only on purpose: every action that changes an
+  // adapter's state now lives in the migration review card instead, so
+  // there is exactly one place to act and one place to observe.
   const lane = (stt, label) => `<div class="lane"><h4>${label}</h4>${b.adapters.filter(x => x.state === stt).map(x => {
     let btn = '', gate = '';
-    if (stt === 'tested') { const ok = x.lastRun && x.lastRun.readiness === 'PASS'; btn = `<button class="btn sm" data-act="promote" data-arg="${x.id}" ${ok ? '' : 'disabled'}>Promote to canary</button>`; gate = ok ? 'contract tests passed' : 'needs a passing batch run'; }
+    if (stt === 'tested') gate = (x.lastRun && x.lastRun.readiness === 'PASS') ? 'passed its checks — see Reviews to promote it' : 'needs a passing batch run';
     if (stt === 'canary') {
       const ok = x.lastRun && x.lastRun.readiness === 'PASS' && x.canaryPass >= 1;
-      const promoteBtn = `<button class="btn sm" data-act="promote" data-arg="${x.id}" ${ok ? '' : 'disabled'}>Promote to primary</button>`;
       const faultBtn = `<button class="btn sm warnish" data-act="breakcanary" data-arg="${x.id}" ${x.fault ? 'disabled' : ''}>${x.fault ? 'Failure queued' : 'Simulate canary failure'}</button>`;
-      btn = promoteBtn + faultBtn;
-      gate = x.fault ? 'a correctness bug is queued — run a batch to see it surface and roll back' : (ok ? `${x.canaryPass} clean run${x.canaryPass > 1 ? 's' : ''} in canary` : 'needs one clean batch in canary');
+      btn = faultBtn;
+      gate = x.fault ? 'a correctness bug is queued — run a batch to see it surface and roll back' : (ok ? `clean so far — see Reviews to promote it` : 'needs one clean batch in canary');
     }
     if (stt === 'rolled_back') { gate = 'failed in canary and was rolled back automatically; the previous primary was never touched'; }
     if (stt === 'deprecated') btn = `<button class="btn sm" data-act="retire" data-arg="${x.id}">Retire</button>`;
-    return `<div class="chip ${x.id === a.id ? 'sel' : ''}"><b>${short(x)}</b>upstream ${x.upstreamVersion}, mapping v${x.mapping.version}${btn}${gate ? `<span class="gate">${gate}</span>` : ''}</div>`;
+    return `<div class="chip ${x.id === a.id ? 'sel' : ''}"><b>${versionLabel(b, x)}</b>mapping v${x.mapping.version}${btn}${gate ? `<span class="gate">${gate}</span>` : ''}</div>`;
   }).join('')}</div>`;
 
   const clane = (stt, label) => `<div class="lane" style="min-height:64px"><h4>${label}</h4>${c.state === stt ? `<div class="chip"><b>${b.tool}@${c.version}</b>${stt === 'ACTIVE' ? `<button class="btn sm" data-act="deprecate" data-arg="${b.tool}">Deprecate contract</button><span class="gate">sunset lands 5 days later</span>` : ''}${stt === 'DEPRECATED' ? `<span class="gate">sunset on day ${c.sunsetDay}</span>` : ''}</div>` : ''}</div>`;
@@ -221,14 +219,14 @@ function renderPipelineTab() {
 
   $('#tabPipeline').innerHTML = `
    <div class="card">
-     <div class="bhead"><div><h2>${b.tool}</h2>
+     <div class="bhead"><div><h2>${esc(b.displayName || b.tool)} <small>${esc(b.tool)}</small></h2>
        <div class="chips"><span class="pill kind">${b.kind}</span><span class="pill kind">${b.system}</span><span class="pill kind">${esc(b.iface)}</span><span class="pill ${c.state}">contract ${c.version} ${c.state}</span></div></div>
-       <div style="display:flex;gap:8px;flex-wrap:wrap">${standBtn}<button class="btn sm" data-act="call">Call tool now</button></div></div>
+       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-act="call">Call tool now</button></div></div>
      <div class="tabs">${tabs}</div>
-     ${failNote}
+     ${migratePointer}
    </div>
    <div class="card">
-     <h2>Sanity pipeline <small>${run ? `${short(a)}, day ${run.day}` : 'not run yet'}</small></h2>
+     <h2>Sanity pipeline <small>${run ? `${versionLabel(b, a)}, day ${run.day}` : 'not run yet'}</small></h2>
      <div class="path">${names.map((n, i) => { const sc = stageClass(i, run); const stx = run && i < state.reveal ? run.stages[i].status : 'pending';
        return `<button class="stn ${sc} ${i === selStage ? 'sel' : ''}" data-act="stage" data-arg="${i}"><span class="dot">${symbol[sc]}</span><span class="nm">${n}</span><span class="st">${stx === 'pending' ? 'waiting' : stx}</span></button>`; }).join('')}</div>
      ${st && state.reveal >= 6 ? `<div class="detail"><h4>${names[selStage]}</h4><ul>${st.lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>` : ''}
@@ -254,17 +252,79 @@ function renderMappingTab() {
   const yaml = [`mapping ${b.tool.replace('.', '-')}-${a.upstreamVersion}   version ${mp.version}`, `unwrap: ${mp.unwrap || 'none'}    source_tz: ${mp.sourceTz}    coerce_numbers: ${mp.coerce}`, 'fields:']
     .concat(mp.fields.map(f => `  ${f.src.padEnd(16)} → ${f.target.padEnd(12)} ${f.transform}${f.transform === 'enum' ? ' ' + JSON.stringify(f.values) : ''}${f.transform === 'datetime' ? ' ' + f.format : ''}`)).join('\n');
   const tabs = b.adapters.filter(x => x.state !== 'retired').map(x =>
-    `<button class="tab ${x.id === a.id ? 'sel' : ''}" data-act="seladapter" data-arg="${x.id}">${short(x)} on ${x.upstreamVersion} (${x.state})</button>`
+    `<button class="tab ${x.id === a.id ? 'sel' : ''}" data-act="seladapter" data-arg="${x.id}">${adapterLabel(b, x)}</button>`
   ).join('');
   $('#tabMapping').innerHTML = `
     <div class="card">
-      <h2>${b.tool} <small>registered mapping for the selected adapter</small></h2>
+      <h2>${esc(b.displayName || b.tool)} <small>${esc(b.tool)} — registered mapping for the selected adapter</small></h2>
       <div class="tabs">${tabs}</div>
     </div>
-    <div class="card"><h2>Active mapping <small>${short(a)}</small></h2><pre>${esc(yaml)}</pre></div>`;
+    <div class="card"><h2>Active mapping <small>${versionLabel(b, a)}</small></h2><pre>${esc(yaml)}</pre></div>`;
 }
 
 /* ======================= right panel: reviews + auto-fixed ======================= */
+
+// A compact confidence bar per field, rather than the full name/type/value
+// breakdown — a migration can touch several fields at once, and the point
+// here is "which of these can I trust", not the reasoning behind each one
+// (that's still one click away, in the Mapping tab, once it's running).
+function migrationFieldChart(fieldScores) {
+  return `<div class="confblock"><div class="conflabel">Field mapping confidence</div>` +
+    fieldScores.map(fs => `<div class="confrow"><span>${esc(fs.target)}</span><div class="confbar sm"><div class="conffill" style="width:${pct(fs.score)}%;background:${confColor(fs.score)}"></div></div><b>${fs.to ? pct(fs.score) + '%' : 'no match'}</b></div>`).join('') +
+    `</div>`;
+}
+
+// One card per binding that needs a migration, with exactly one
+// recommended next step at a time — start it, promote it, or try again —
+// so approving a migration never requires knowing what "canary" means
+// going in. The confidence chart is the same one a probable rename shows;
+// it's what the recommendation is based on, not a separate claim.
+function migrationCard(r) {
+  const b = state.bindings.find(x => x.id === r.bindingId);
+  const active = r.adapterId ? b.adapters.find(x => x.id === r.adapterId) : null;
+  let body = '', action = '', tone = 'REVIEW';
+
+  if (r.stage === 'not_started') {
+    const prev = r.preview;
+    if (!prev) {
+      body = `<p>The next version couldn't be reached to check yet. This will update on the next batch.</p>`; tone = 'FAIL';
+    } else if (prev.ok) {
+      body = `<p>This can be generated automatically, with high confidence on every field. <b>Recommended: start the migration.</b></p>${migrationFieldChart(prev.fieldScores)}`;
+      action = `<button class="btn primary sm" data-act="startmigration" data-arg="${esc(r.targetVersion)}" data-binding="${b.id}">Start migration to ${esc(r.targetVersion)}</button>`;
+      tone = 'PASS';
+    } else {
+      body = `<p>Some fields couldn't be matched automatically with confidence (shown below). <b>Recommended: start the migration anyway</b> — low-confidence fields fall back to a safe, exact-name mapping, and can be corrected afterward from the Mapping tab.</p>${migrationFieldChart(prev.fieldScores)}`;
+      action = `<button class="btn primary sm" data-act="startmigration" data-arg="${esc(r.targetVersion)}" data-binding="${b.id}">Start migration to ${esc(r.targetVersion)} (safe fallback)</button>`;
+    }
+  } else if (r.stage === 'checking') {
+    body = `<p>Checking the candidate — this will update on the next batch.</p>`;
+  } else if (r.stage === 'ready_for_canary') {
+    const usedFallback = active && active.note === 'operator authored';
+    body = `<p>The candidate passed its initial checks${usedFallback ? ' using the safe fallback mapping' : ''}. <b>Recommended: promote it to canary</b> to test it safely alongside the current version before it takes over.</p>`;
+    action = `<button class="btn primary sm" data-act="promote" data-arg="${active.id}">Promote to canary</button>`;
+    tone = 'PASS';
+  } else if (r.stage === 'in_canary') {
+    body = `<p>The candidate is running in canary. <b>Recommended: run another batch</b> to complete a clean canary cycle before promoting it further.</p>`;
+  } else if (r.stage === 'ready_for_primary') {
+    body = `<p>The candidate has run cleanly in canary. <b>Recommended: promote it</b> to take over as the current version.</p>`;
+    action = `<button class="btn primary sm" data-act="promote" data-arg="${active.id}">Promote to current version</button>`;
+    tone = 'PASS';
+  } else if (r.stage === 'rolled_back') {
+    body = `<p>The candidate failed testing and was rolled back automatically. <b>The original version was never affected and is still running.</b> Recommended: try again.</p>`;
+    action = `<button class="btn primary sm" data-act="startmigration" data-arg="${esc(r.targetVersion)}" data-binding="${b.id}">Try migration again</button>`;
+    tone = 'FAIL';
+  } else if (r.stage === 'no_target') {
+    body = `<p>There is no newer version available to migrate to. <b>This can't be fixed from here</b> — it needs attention outside this tool, such as contacting whoever maintains this API.</p>`;
+    tone = 'FAIL';
+  }
+
+  return `<div class="rev migration"><header><b>${r.id} ${esc(b.displayName || b.tool)}</b><span class="pill ${tone}">${(r.stage || '').replace(/_/g, ' ')}</span></header>
+    <div class="tiny">opened on day ${r.day}${r.attempts ? ` · attempt ${r.attempts + 1}` : ''}</div>
+    <p class="migreason">${esc(r.reasonText)}</p>
+    ${body}
+    ${action ? `<div class="row">${action}</div>` : ''}
+  </div>`;
+}
 
 function reviewCard(r) {
   const b = state.bindings.find(x => x.id === r.bindingId), a = b.adapters.find(x => x.id === r.adapterId);
@@ -289,6 +349,8 @@ function reviewCard(r) {
 // ones shrink to a single line so they don't crowd out the ones that matter.
 function renderReviewPanel() {
   const open = state.reviews.filter(r => r.status === 'open');
+  const openMigrations = open.filter(r => r.kind === 'migration');
+  const openMappings = open.filter(r => r.kind !== 'migration');
   const done = state.reviews.filter(r => r.status !== 'open').slice(0, 5);
   $('#rcount').textContent = open.length ? `${open.length} need${open.length === 1 ? 's' : ''} a decision` : '';
   $('#reviewCard').classList.toggle('urgent', open.length > 0);
@@ -297,7 +359,7 @@ function renderReviewPanel() {
     return;
   }
   $('#reviewPanelBody').innerHTML =
-    (open.length ? open.map(reviewCard).join('') : '<p class="empty">Nothing waiting on you.</p>') +
+    (open.length ? openMigrations.map(migrationCard).join('') + openMappings.map(reviewCard).join('') : '<p class="empty">Nothing waiting on you.</p>') +
     (done.length ? `<div class="sect">Resolved</div>` + done.map(r =>
       `<div class="revdone"><span class="pill ${r.status}">${r.status}</span> <b>${r.id}</b> ${esc(r.bindingId)} <span class="tiny">day ${r.day}</span></div>`).join('') : '');
 }
@@ -372,9 +434,46 @@ function renderAuditFilterOptions() {
   }
 }
 
+/* ================================ APIs tab ================================ */
+
+// One line per API: is it working, and if not, why — in the same plain
+// language the review cards use, so the story is consistent whether
+// someone reads it here or gets pulled into a review about it.
+function apiStatusReason(b) {
+  const h = health(b);
+  if (h === 'SUNSET') return 'Retired — no longer served.';
+  const openMig = state.reviews.find(r => r.kind === 'migration' && r.bindingId === b.id && r.status === 'open');
+  if (openMig) return openMig.stage === 'no_target' ? `Blocked, unfixable from here — ${openMig.reasonText}` : openMig.reasonText;
+  const openMap = state.reviews.find(r => r.kind !== 'migration' && r.bindingId === b.id && r.status === 'open');
+  if (openMap) return `Waiting on a decision — ${openMap.events[0] || 'a change needs review'}`;
+  if (h === 'FAIL') return 'Blocked for a reason not yet captured as a review — check the Pipeline tab.';
+  if (h === 'REVIEW') return 'Something changed and needs a decision — see Reviews.';
+  return 'Working normally.';
+}
+
+function apiRow(b) {
+  const p = primary(b);
+  const h = health(b);
+  const rolledBack = b.adapters.filter(x => x.state === 'rolled_back').length;
+  const confirming = state.confirmRemove === b.id;
+  return `<tr>
+    <td><b>${esc(b.displayName || b.tool)}</b><div class="tiny mono">${esc(b.id)}</div></td>
+    <td>${b.kind}</td>
+    <td class="mono">${p ? esc(p.upstreamVersion) : '—'}</td>
+    <td><span class="pill ${h}">${h}</span>${rolledBack ? `<div class="tiny">${rolledBack} rolled-back attempt${rolledBack > 1 ? 's' : ''}</div>` : ''}</td>
+    <td class="tiny">${esc(apiStatusReason(b))}</td>
+    <td><button class="btn sm ${confirming ? 'cancelq' : ''}" data-act="removeapi" data-arg="${b.id}">${confirming ? 'Confirm?' : 'Remove'}</button></td>
+  </tr>`;
+}
+
+export function renderApisTab() {
+  $('#apiCount').textContent = state.bindings.length + ' configured';
+  $('#apiRows').innerHTML = state.bindings.map(apiRow).join('');
+}
+
 /* ================================ tabs ================================ */
 
-const MAIN_TABS = ['pipeline', 'mapping', 'audit'];
+const MAIN_TABS = ['pipeline', 'apis', 'mapping', 'audit'];
 
 function renderTabBar() {
   MAIN_TABS.forEach(t => {
@@ -424,6 +523,7 @@ export function render() {
   renderSim();
   renderTabBar();
   renderPipelineTab();
+  renderApisTab();
   renderMappingTab();
   renderReviewPanel();
   renderAutoFixPanel();

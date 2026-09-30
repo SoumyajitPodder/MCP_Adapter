@@ -11,7 +11,7 @@ import { analyzeRaw, recordsFor, detect } from './detector.js';
 import { scoreCandidate, classify } from './classifier.js';
 import { translate, validateCanon, compareLKG } from './validator.js';
 import { makeAdapter, rebaseline, deriveMapping, contractEnum } from './adapters.js';
-import { primary, clone, SEV, pathsOf, stripPrefix, nameSim, inferFmt } from './utils.js';
+import { primary, clone, SEV, pathsOf, stripPrefix, nameSim, inferFmt, versionLabel } from './utils.js';
 import { SCENARIOS } from '../../data/scenarios.js';
 
 /* ---- propose a fix for drift on a live adapter ----
@@ -82,12 +82,19 @@ export function proposeVersion(b, oldMapping, s) {
   const pickF = new Map(), usedP = new Set();
   pairs.forEach(x => { if (pickF.has(x.f.target) || usedP.has(x.p)) return; if (x.sc.score >= 0.6) { pickF.set(x.f.target, x); usedP.add(x.p); } });
   const m = clone(oldMapping); m.version = 1; m.unwrap = unwrap; m.coerce = false;
-  const notes = [], unresolved = [];
+  const notes = [], unresolved = [], fieldScores = [];
   if (unwrap) notes.push(`unwrap envelope "${unwrap}"`);
   m.fields.forEach(f => {
     const pick = pickF.get(f.target);
-    if (!pick) { const best = pairs.filter(x => x.f.target === f.target)[0]; unresolved.push(`${f.target}: no confident source (best guess "${best ? best.p : 'none'}" scored ${best ? best.sc.score : 0})`); return; }
+    const from = f.src;
+    if (!pick) {
+      const best = pairs.filter(x => x.f.target === f.target)[0];
+      unresolved.push(`${f.target}: no confident source (best guess "${best ? best.p : 'none'}" scored ${best ? best.sc.score : 0})`);
+      fieldScores.push({ target: f.target, from, to: best ? best.p : null, resolved: false, score: best ? best.sc.score : 0, name: best ? best.sc.name : 0, type: best ? best.sc.type : 0, value: best ? best.sc.value : 0 });
+      return;
+    }
     notes.push(`${f.target}: "${f.src}" → "${pick.p}" (confidence ${pick.sc.score})`); f.src = pick.p;
+    fieldScores.push({ target: f.target, from, to: pick.p, resolved: true, score: pick.sc.score, name: pick.sc.name, type: pick.sc.type, value: pick.sc.value });
     if (f.transform === 'datetime') { const fm = inferFmt(records[0][f.src]); f.format = fm; notes.push(`${f.target}: datetime format ${fm}`); }
     if (f.transform === 'enum') {
       const opts = contractEnum(b, f.target);
@@ -101,7 +108,7 @@ export function proposeVersion(b, oldMapping, s) {
       });
     }
   });
-  return { ok: unresolved.length === 0, mapping: m, notes, unresolved };
+  return { ok: unresolved.length === 0, mapping: m, notes, unresolved, fieldScores };
 }
 
 // detect + classify + log every item + open a review if anything is
@@ -127,7 +134,7 @@ export function assess(b, a, src) {
       state.reviews.filter(r => r.adapterId === a.id && r.status === 'open').forEach(r => r.status = 'superseded');
       const P = proposeFix(b, a, det, cls.items);
       review = {
-        id: 'R' + (state.reviews.length + 1), bindingId: b.id, adapterId: a.id, sig, day: state.day, status: 'open',
+        id: 'R' + (++state.reviewSeq), kind: 'mapping', bindingId: b.id, adapterId: a.id, sig, day: state.day, status: 'open',
         events: cls.items.filter(i => SEV[i.cls] >= 1 && !i.sunset).map(i => i.reason),
         renames: ri.filter(i => i.rename).map(i => i.rename),
         candidate: P.mapping, changes: P.changes, choices: P.choices, conf: P.conf, src
@@ -160,7 +167,7 @@ function applyCanaryFault(b, t) {
 export function injectCanaryFault(b, a) {
   if (a.state !== 'canary' || a.fault) return;
   a.fault = true;
-  log(b, 'SYSTEM', `simulated: injected a correctness bug into ${a.id.split('/')[1]} (canary) — will surface on the next run`, 'sim', { actor: 'simulator', action: 'SIMULATION' });
+  log(b, 'SYSTEM', `simulated: injected a correctness bug into ${versionLabel(b, a)} (canary) — will surface on the next run`, 'sim', { actor: 'simulator', action: 'SIMULATION' });
 }
 
 // Upstream versions nobody has an active (tested/canary/primary) adapter
@@ -240,7 +247,7 @@ export function runPipeline(b, a, src = 'batch') {
     const pr = primary(b);
     if (a.state !== 'primary' && pr && pr !== a) {
       const c2 = compareLKG(b, pr.lkg, t.out);
-      lines.push(`shadow vs primary ${pr.id.split('/')[1]}: ${c2.identical}/${c2.compared} identical`);
+      lines.push(`shadow vs primary ${versionLabel(b, pr)}: ${c2.identical}/${c2.compared} identical`);
       if (c2.diffs.length) { valOk = false; cmp.diffs.push(...c2.diffs); }
     }
     valOk = v.bad === 0 && cmp.diffs.length === 0 && t.out.length > 0;
@@ -268,7 +275,7 @@ export function runPipeline(b, a, src = 'batch') {
     // canary stage.
     a.state = 'rolled_back';
     const p = primary(b);
-    log(b, 'BREAKING', `${a.id.split('/')[1]} failed in canary and was rolled back automatically; ${p ? p.id.split('/')[1] + ' remains primary, unaffected' : 'no primary is currently serving'}`, 'batch', { actor: 'system', action: 'ADAPTER_ROLLED_BACK' });
+    log(b, 'BREAKING', `${versionLabel(b, a)} failed in canary and was rolled back automatically; ${p ? versionLabel(b, p) + ' remains primary, unaffected' : 'no primary is currently serving'}`, 'batch', { actor: 'system', action: 'ADAPTER_ROLLED_BACK' });
   }
   return run;
 }
@@ -365,6 +372,7 @@ export function runBatch(advance) {
   state.bindings.forEach(b => {
     if (CONTRACTS[b.tool].state === 'SUNSET') { results.push({ bindingId: b.id, tool: b.tool, readiness: 'SUNSET' }); return; }
     b.adapters.filter(a => ['tested', 'canary', 'primary'].includes(a.state)).forEach(a => runPipeline(b, a));
+    assessMigrationReview(b);
     results.push({ bindingId: b.id, tool: b.tool, readiness: health(b) });
   });
   state.batches++;
@@ -393,11 +401,136 @@ export function liveCall(b) {
     data: t.out.slice(0, 2),
     _meta: {
       contract: `${b.tool}@${c.version}`,
-      served_by: `${a.id.split('/')[1]} (mapping v${a.mapping.version}, upstream ${a.upstreamVersion})`,
+      served_by: `${versionLabel(b, a)} (mapping v${a.mapping.version})`,
       absorbed: cls.items.filter(i => i.tier === 'A' && i.cls === 'COMPATIBLE' && i.event.type !== 'FIELD_ADDED').map(i => i.reason),
       warnings
     }
   };
+}
+
+/* ---- migration reviews ----
+   A binding whose primary can no longer be trusted (an announced sunset,
+   or a version that's already gone) needs a person to move it to a new
+   version. That decision belongs in the same place every other decision
+   shows up — the review panel — with a plain-language reason, one clear
+   recommended action at a time, and the mapping's confidence broken down
+   the same way a probable rename's is. Nobody should have to already know
+   what "tested" or "canary" means to migrate an API safely. */
+
+function migrationReason(b, p) {
+  const vstage = p && p.lastRun && p.lastRun.stages[0];
+  if (vstage && vstage.status === 'fail') {
+    return { key: 'gone', text: `The version ${p.upstreamVersion} currently used by ${b.tool} has stopped responding. It needs to be replaced before this tool can work again.` };
+  }
+  if (b.upstream.sunsetDay != null) {
+    const left = b.upstream.sunsetDay - state.day;
+    return { key: 'sunset', text: left > 0
+      ? `The version ${p ? p.upstreamVersion : ''} currently used by ${b.tool} is being retired in ${left} day${left === 1 ? '' : 's'}.`
+      : `The version ${p ? p.upstreamVersion : ''} currently used by ${b.tool} was due to retire and may stop responding at any time.` };
+  }
+  return { key: 'breaking', text: `${b.tool} reported a change to its current version that could not be safely handled automatically.` };
+}
+
+// Creates, refreshes, or resolves the one open migration review for a
+// binding. Called after every batch, and also right after any action
+// (starting a migration, promoting a candidate) so the card in the review
+// panel never lags a step behind what just happened.
+//
+// "Needs attention" is judged from the current primary's own last run
+// (is it the version being sunset, or already gone) plus whether an
+// attempt is in progress — never by asking "is there a version nothing
+// tested/canary/primary currently targets", because the *old* version
+// becomes exactly that the moment it's safely deprecated, which is a
+// success, not a new problem.
+export function assessMigrationReview(b) {
+  let review = state.reviews.find(r => r.kind === 'migration' && r.bindingId === b.id && r.status === 'open');
+  const tracked = review && review.adapterId ? b.adapters.find(x => x.id === review.adapterId) : null;
+
+  if (tracked && tracked.state === 'primary') {
+    review.status = 'resolved'; review.stage = 'done';
+    return;
+  }
+
+  if (tracked && tracked.state === 'rolled_back' && !review.rolledBackNoted) {
+    review.rolledBackNoted = true;
+    review.attempts++;
+    review.stage = 'rolled_back';
+    review.adapterId = null;
+    return;
+  }
+
+  const active = (tracked && ['tested', 'canary'].includes(tracked.state))
+    ? tracked
+    : [...b.adapters].reverse().find(x => x.state === 'tested' || x.state === 'canary');
+
+  const p = primary(b);
+  // BREAKING covers both "the version is gone" and any other unrecoverable
+  // change to the current version's shape (a required field disappearing,
+  // say) — not just the sunset/cutover cases, which is what a version
+  // string check alone would have missed.
+  const primaryTroubled = !!(p && p.lastRun && (
+    p.lastRun.overall === 'BREAKING' ||
+    (b.upstream.sunsetDay != null && b.upstream.sunsetVersion === p.upstreamVersion)
+  ));
+
+  if (!primaryTroubled && !active) {
+    if (review) { review.status = 'resolved'; review.stage = 'done'; }
+    return;
+  }
+
+  // There may be nothing to migrate to at all — the upstream broke and
+  // never offered a replacement version. That's still worth a card: it's
+  // the "unfixable from here" case, not nothing to report.
+  const targetVersion = active ? active.upstreamVersion : untargeted(b)[0];
+
+  if (!review) {
+    const reason = migrationReason(b, p);
+    review = {
+      id: 'M' + (++state.reviewSeq), kind: 'migration', bindingId: b.id, status: 'open', day: state.day,
+      targetVersion: targetVersion || null, reasonKey: reason.key, reasonText: reason.text,
+      adapterId: null, attempts: 0, rolledBackNoted: false
+    };
+    state.reviews.unshift(review);
+    state.rightOpen = true;
+    log(b, 'REVIEW_REQUIRED', `migration needed: ${reason.text}`, 'batch', { actor: 'system', action: 'REVIEW_OPENED' });
+  }
+
+  if (targetVersion) review.targetVersion = targetVersion;
+
+  if (active) {
+    review.adapterId = active.id;
+    if (active.state === 'tested') {
+      review.stage = (active.lastRun && active.lastRun.readiness === 'PASS') ? 'ready_for_canary' : 'checking';
+    } else {
+      const clean = active.canaryPass >= 1 && active.lastRun && active.lastRun.readiness === 'PASS';
+      review.stage = clean ? 'ready_for_primary' : 'in_canary';
+    }
+    return;
+  }
+
+  if (!targetVersion) {
+    review.stage = 'no_target';
+    review.preview = null;
+    return;
+  }
+
+  // No attempt exists yet: compute a live preview of the automatic
+  // proposal so the card can show the confidence chart and recommendation
+  // before anyone commits to starting the migration.
+  review.stage = 'not_started';
+  const s = fetchUpstream(b, targetVersion, 8);
+  review.preview = s.status === 200 ? proposeVersion(b, p.mapping, s) : null;
+}
+
+// One button for the non-expert path: try the automatic mapping, and only
+// fall back to the operator-authored 1:1 mapping if the automatic one
+// wasn't confident enough. Either way exactly one adapter is created and
+// the migration review is refreshed immediately.
+export function beginMigration(b, ver) {
+  const s = fetchUpstream(b, ver, 8);
+  if (s.status !== 200) { log(b, 'BREAKING', `cannot start migration to ${ver}: HTTP ${s.status}`, 'batch', { actor: 'operator', action: 'ADAPTER_STANDUP_FAILED' }); return; }
+  const preview = proposeVersion(b, primary(b).mapping, s);
+  if (preview.ok) standUp(b, ver); else operatorMap(b, ver); // both refresh the migration review themselves
 }
 
 /* ---- adapter and contract lifecycle actions ---- */
@@ -406,18 +539,19 @@ export function promote(b, a) {
   if (a.state === 'tested') {
     if (!a.lastRun || a.lastRun.readiness !== 'PASS') return;
     a.state = 'canary'; a.canaryPass = 0;
-    log(b, 'PASS', `${a.id.split('/')[1]} promoted tested → canary`, 'batch', { actor: 'operator', action: 'ADAPTER_PROMOTED' });
+    log(b, 'PASS', `${versionLabel(b, a)} promoted to canary`, 'batch', { actor: 'operator', action: 'ADAPTER_PROMOTED' });
   } else if (a.state === 'canary') {
     if (!a.lastRun || a.lastRun.readiness !== 'PASS' || a.canaryPass < 1) return;
     const old = primary(b);
-    if (old) { old.state = 'deprecated'; log(b, 'REVIEW_REQUIRED', `${old.id.split('/')[1]} moved primary → deprecated`, 'batch', { actor: 'operator', action: 'ADAPTER_DEPRECATED' }); }
+    if (old) { old.state = 'deprecated'; log(b, 'REVIEW_REQUIRED', `${versionLabel(b, old)} moved from current to previous`, 'batch', { actor: 'operator', action: 'ADAPTER_DEPRECATED' }); }
     a.state = 'primary';
-    log(b, 'PASS', `${a.id.split('/')[1]} promoted canary → primary`, 'batch', { actor: 'operator', action: 'ADAPTER_PROMOTED' });
+    log(b, 'PASS', `${versionLabel(b, a)} promoted to current version`, 'batch', { actor: 'operator', action: 'ADAPTER_PROMOTED' });
   }
+  assessMigrationReview(b);
 }
 
 export function retire(b, a) {
-  if (a.state === 'deprecated') { a.state = 'retired'; log(b, 'SYSTEM', `${a.id.split('/')[1]} retired`, 'batch', { actor: 'operator', action: 'ADAPTER_RETIRED' }); }
+  if (a.state === 'deprecated') { a.state = 'retired'; log(b, 'SYSTEM', `${versionLabel(b, a)} retired`, 'batch', { actor: 'operator', action: 'ADAPTER_RETIRED' }); }
 }
 
 // Breaking-drift / migration path: builds a proposed mapping for the new
@@ -429,8 +563,9 @@ export function standUp(b, ver) {
   if (!P.ok) { b.proposalFailed = { ver, unresolved: P.unresolved }; log(b, 'BREAKING', `no automatic mapping for ${ver}: ${P.unresolved.length} unresolved field${P.unresolved.length === 1 ? '' : 's'}; operator must author it`, 'batch', { actor: 'operator', action: 'ADAPTER_STANDUP_FAILED' }); return; }
   const a = makeAdapter(b, ver, P.mapping, 'tested', 'proposed automatically');
   b.adapters.push(a); b.proposalFailed = null; state.selAdapter = a.id;
-  log(b, 'PASS', `adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state (${P.notes.length} mapping decisions)`, 'batch', { actor: 'operator', action: 'ADAPTER_STOOD_UP' });
+  log(b, 'PASS', `${versionLabel(b, a)} candidate ready for review (${P.notes.length} mapping decisions)`, 'batch', { actor: 'operator', action: 'ADAPTER_STOOD_UP' });
   runPipeline(b, a);
+  assessMigrationReview(b);
 }
 
 // Fallback when the automatic proposal isn't confident enough: an
@@ -439,8 +574,9 @@ export function operatorMap(b, ver) {
   const m = deriveMapping(b, b.upstream.versions[ver]);
   const a = makeAdapter(b, ver, m, 'tested', 'operator authored');
   b.adapters.push(a); b.proposalFailed = null; state.selAdapter = a.id;
-  log(b, 'PASS', `operator-authored adapter ${a.id.split('/')[1]} for ${ver} stood up in tested state`, 'batch', { actor: 'operator', action: 'ADAPTER_STOOD_UP' });
+  log(b, 'PASS', `${versionLabel(b, a)} candidate ready for review (operator-authored mapping)`, 'batch', { actor: 'operator', action: 'ADAPTER_STOOD_UP' });
   runPipeline(b, a);
+  assessMigrationReview(b);
 }
 
 // Approval gate: every reviewer choice made, sandbox fully valid, zero
@@ -454,7 +590,7 @@ export function approve(rv) {
   if (ev.sandbox.valid !== ev.sandbox.total || ev.shadow.diffs.length) return;
   cand.version = a.mapping.version + 1; a.mapping = cand;
   rebaseline(b, a); rv.status = 'approved'; state.metrics.approved++;
-  log(b, 'PASS', `review ${rv.id} approved; mapping registry now holds ${a.id.split('/')[1]} mapping v${cand.version}`, 'batch', { actor: 'reviewer', action: 'REVIEW_APPROVED' });
+  log(b, 'PASS', `review ${rv.id} approved; ${versionLabel(b, a)} mapping updated to v${cand.version}`, 'batch', { actor: 'reviewer', action: 'REVIEW_APPROVED' });
   runPipeline(b, a);
 }
 

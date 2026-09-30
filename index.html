@@ -67,11 +67,36 @@
       <section class="workarea">
         <div class="tabbar">
           <button class="mtab" id="mtab-pipeline" data-act="maintab" data-arg="pipeline">Pipeline</button>
+          <button class="mtab" id="mtab-apis" data-act="maintab" data-arg="apis">APIs</button>
           <button class="mtab" id="mtab-mapping" data-act="maintab" data-arg="mapping">Mapping</button>
           <button class="mtab" id="mtab-audit" data-act="maintab" data-arg="audit">Audit Log</button>
         </div>
 
         <div class="tabpanel" id="tabPipeline"></div>
+        <div class="tabpanel" id="tabApis" hidden>
+          <div class="card">
+            <h2>APIs <small id="apiCount"></small></h2>
+            <div class="tablewrap">
+              <table class="audittable">
+                <thead><tr><th>API</th><th>Kind</th><th>Version</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+                <tbody id="apiRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Add an API</h2>
+            <p class="tiny">New APIs start with a plain generic contract — an id, a status, a secondary reference id, and a timestamp — so every existing drift injector and scenario works on them immediately, no setup needed.</p>
+            <div class="addapi-form">
+              <input type="text" id="apiNameInput" placeholder="API name, e.g. Billing API">
+              <select id="apiKindInput">
+                <option value="REST">REST</option>
+                <option value="FILE">File feed</option>
+              </select>
+              <button class="btn primary sm" data-act="addapi">Add API</button>
+            </div>
+            <div id="addApiMsg" class="tiny"></div>
+          </div>
+        </div>
         <div class="tabpanel" id="tabMapping" hidden></div>
         <div class="tabpanel" id="tabAudit" hidden>
           <div class="card">

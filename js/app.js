@@ -13,8 +13,9 @@ import {
   runBatch, runPipeline, promote, retire, standUp, operatorMap,
   approve, reject, liveCall, health, deprecateContract,
   withChoices, evalCandidate, injectCanaryFault, activateScenario,
-  queueDrift, cancelQueuedDrift
+  queueDrift, cancelQueuedDrift, beginMigration, assessMigrationReview
 } from './core/lifecycle.js';
+import { addBinding, removeBinding } from './core/registry.js';
 import { render } from './ui/render.js';
 import { bindEvents } from './ui/events.js';
 
@@ -53,7 +54,8 @@ window.__core = {
   runBatch, runPipeline, inject, approve, reject, standUp, operatorMap,
   promote, retire, liveCall, health, primary, withChoices, evalCandidate,
   deprecateContract, injectCanaryFault, activateScenario,
-  queueDrift, cancelQueuedDrift
+  queueDrift, cancelQueuedDrift, beginMigration, assessMigrationReview,
+  addBinding, removeBinding
 };
 
 bindEvents({ onReset: initApp });
