@@ -6,10 +6,12 @@ claim problem rejects the token without saying why.
 
 import asyncio
 import json
+import urllib.error
 import urllib.request
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Final
+from http.client import HTTPMessage
+from typing import IO, Final, override
 
 import jwt
 from pydantic import SecretStr, ValidationError
@@ -24,14 +26,46 @@ REQUIRED_CLAIMS: Final = ("exp", "iat", "iss", "aud", "sub")
 type JwksFetcher = Callable[[], Awaitable[dict[str, object]]]
 
 
+MAX_JWKS_BYTES: Final = 1 << 20
+
+
+class HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to another https URL: the https check must hold for the URL the
+    keys actually come from, not just the configured one."""
+
+    @override
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        if not newurl.startswith("https://"):
+            raise urllib.error.HTTPError(newurl, code, "redirect away from https", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def read_capped(response: IO[bytes], limit: int = MAX_JWKS_BYTES) -> bytes:
+    """The body, or ValueError past ``limit`` bytes: a key set is small, a flood is not."""
+    body = response.read(limit + 1)
+    if len(body) > limit:
+        msg = f"JWKS body larger than {limit} bytes"
+        raise ValueError(msg)
+    return body
+
+
 def https_jwks_fetcher(url: str, timeout_s: float) -> JwksFetcher:
     if not url.startswith("https://"):
         msg = "JWKS URL must use https"
         raise ValueError(msg)
+    opener = urllib.request.build_opener(HttpsOnlyRedirects())
 
     def fetch_blocking() -> dict[str, object]:
-        with urllib.request.urlopen(url, timeout=timeout_s) as response:  # noqa: S310 - https enforced above
-            body: dict[str, object] = json.loads(response.read())
+        with opener.open(url, timeout=timeout_s) as response:
+            body: dict[str, object] = json.loads(read_capped(response))
             return body
 
     async def fetch() -> dict[str, object]:

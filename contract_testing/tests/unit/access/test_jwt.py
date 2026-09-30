@@ -1,9 +1,13 @@
 """JWT verification. Keys are generated per test run; nothing secret is stored in the repo."""
 
 import asyncio
+import io
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
+from http.client import HTTPMessage
 
 import jwt
 import pytest
@@ -11,7 +15,13 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from jwt.algorithms import ECAlgorithm, RSAAlgorithm
 from pydantic import SecretStr
 
-from adapter_verify.access.adapters.jwt import JwksCache, JwtTokenVerifier, https_jwks_fetcher
+from adapter_verify.access.adapters.jwt import (
+    HttpsOnlyRedirects,
+    JwksCache,
+    JwtTokenVerifier,
+    https_jwks_fetcher,
+    read_capped,
+)
 from adapter_verify.access.ports import TokenRejectedError
 from adapter_verify.common.fakes import ManualClock
 
@@ -232,3 +242,22 @@ async def test_cancelling_the_first_caller_does_not_break_other_waiters() -> Non
 async def test_jwks_url_must_be_https() -> None:
     with pytest.raises(ValueError, match="https"):
         https_jwks_fetcher("http://idp.invalid/jwks", timeout_s=1)
+
+
+async def test_jwks_redirects_must_stay_on_https() -> None:
+    handler = HttpsOnlyRedirects()
+    request = urllib.request.Request("https://idp.invalid/jwks")
+    body = io.BytesIO()
+    with pytest.raises(urllib.error.HTTPError, match="away from https"):
+        handler.redirect_request(request, body, 302, "Found", HTTPMessage(), "http://idp.invalid/k")
+    followed = handler.redirect_request(
+        request, body, 302, "Found", HTTPMessage(), "https://cdn.idp.invalid/k"
+    )
+    assert followed is not None
+    assert followed.full_url == "https://cdn.idp.invalid/k"
+
+
+async def test_jwks_body_is_capped() -> None:
+    assert read_capped(io.BytesIO(b"{}"), limit=2) == b"{}"
+    with pytest.raises(ValueError, match="larger than 2 bytes"):
+        read_capped(io.BytesIO(b"{ }"), limit=2)
