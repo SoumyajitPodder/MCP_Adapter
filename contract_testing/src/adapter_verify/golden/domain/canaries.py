@@ -1,7 +1,8 @@
 """Mutation canaries (brief §6.8): known-bad changes the suite must catch.
 
 Each canary rewrites the sandbox inputs (tool definitions or fixture outputs), never the repo.
-It is caught when a task that passed on the unmutated inputs fails on the mutated ones.
+It is caught when a task that passed on the unmutated inputs fails a layer check on the mutated
+ones. A run that errored (harness, judge, egress, budget) says nothing about the mutation.
 """
 
 import copy
@@ -14,7 +15,7 @@ from pydantic import Field, JsonValue
 from adapter_verify.common.model import FrozenModel
 from adapter_verify.contract_ci.domain.contracts import CanonicalContract, ContractType
 from adapter_verify.golden.domain.lint import Document, Inputs
-from adapter_verify.golden.domain.results import SuiteResults, TaskVerdict
+from adapter_verify.golden.domain.results import RunOutcome, SuiteResults, TaskResult, TaskVerdict
 from adapter_verify.golden.domain.tasks import GoldenTask
 
 
@@ -33,7 +34,8 @@ class CanaryStatus(StrEnum):
     BASELINE_FAILING = "baseline_failing"
     """No affected task passed unmutated, so the canary can't be judged."""
     INCOMPLETE = "incomplete"
-    """Nothing failed, but a mutated task was undecided (e.g. the model was unavailable)."""
+    """Nothing failed a layer check, but a mutated task was undecided or errored (e.g. the model
+    was unavailable, or the harness broke)."""
 
 
 class CanaryConfig(FrozenModel):
@@ -153,9 +155,16 @@ def status(
     ]
     if not passing or mutated is None:
         return CanaryStatus.BASELINE_FAILING
-    verdicts = {r.verdict for t in passing if (r := mutated.task(t)) is not None}
-    if TaskVerdict.FAIL in verdicts:
+    results = [r for t in passing if (r := mutated.task(t)) is not None]
+    if any(_failed_a_layer(r) for r in results):
         return CanaryStatus.CAUGHT
-    if TaskVerdict.INCOMPLETE in verdicts:
+    if any(r.verdict is not TaskVerdict.PASS for r in results):
         return CanaryStatus.INCOMPLETE
     return CanaryStatus.MISSED
+
+
+def _failed_a_layer(result: TaskResult) -> bool:
+    """Failed, and at least one run failed a layer check rather than erroring (D-087, D-094)."""
+    return result.verdict is TaskVerdict.FAIL and any(
+        r.outcome is RunOutcome.FAIL for r in result.runs
+    )

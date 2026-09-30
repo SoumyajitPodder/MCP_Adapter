@@ -5,6 +5,7 @@ import pytest
 from pydantic import JsonValue
 
 from adapter_verify import composition
+from adapter_verify.golden.domain.assertions import Layer, LayerFailure
 from adapter_verify.golden.domain.canaries import (
     CanaryConfig,
     CanaryKind,
@@ -13,7 +14,15 @@ from adapter_verify.golden.domain.canaries import (
     mutate,
     status,
 )
-from adapter_verify.golden.domain.results import SuiteResults, TaskResult, TaskVerdict, TokenUsage
+from adapter_verify.golden.domain.results import (
+    ErrorKind,
+    RunOutcome,
+    RunRecord,
+    SuiteResults,
+    TaskResult,
+    TaskVerdict,
+    TokenUsage,
+)
 from adapter_verify.settings import ContractSettings
 from tests.unit.golden.support import Repo
 
@@ -82,7 +91,15 @@ def test_drop_field_and_mislead(repo: Repo) -> None:
     assert m.tools == {"order.get"}
 
 
-def _suite(**verdicts: TaskVerdict) -> SuiteResults:
+_LAYER_FAIL = RunRecord(
+    index=1,
+    outcome=RunOutcome.FAIL,
+    failure=LayerFailure(layer=Layer.STATE, expected="shipped", actual="in_progress"),
+)
+_HARNESS_ERROR = RunRecord(index=1, outcome=RunOutcome.ERROR, error=ErrorKind.HARNESS_ERROR)
+
+
+def _suite(runs: tuple[RunRecord, ...] = (_LAYER_FAIL,), **verdicts: TaskVerdict) -> SuiteResults:
     at = datetime(2026, 9, 26, tzinfo=UTC)
     return SuiteResults(
         run_id="r",
@@ -104,7 +121,7 @@ def _suite(**verdicts: TaskVerdict) -> SuiteResults:
                 runs_required=1,
                 threshold=1,
                 verdict=v,
-                runs=(),
+                runs=runs,
                 quarantined=False,
                 quarantine_recommended=False,
             )
@@ -121,6 +138,12 @@ def test_canary_status() -> None:
     assert status(["a"], base, _suite(a=TaskVerdict.FAIL)) is CanaryStatus.CAUGHT
     assert status(["a"], base, _suite(a=TaskVerdict.INCOMPLETE)) is CanaryStatus.INCOMPLETE
     assert status(["a"], base, _suite(a=TaskVerdict.PASS)) is CanaryStatus.MISSED
+
+
+def test_an_errored_mutated_run_is_not_caught() -> None:
+    base = _suite(a=TaskVerdict.PASS)
+    errored = _suite(runs=(_HARNESS_ERROR,), a=TaskVerdict.FAIL)
+    assert status(["a"], base, errored) is CanaryStatus.INCOMPLETE
 
 
 def test_unparseable_timestamps_are_left_alone(repo: Repo) -> None:
