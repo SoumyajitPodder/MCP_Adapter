@@ -4,6 +4,7 @@ Transport-neutral on purpose (M1-Q1 is open): whatever serves MCP converts a req
 ``InboundCall`` and the result back.
 """
 
+import re
 from typing import Final, Protocol
 
 from pydantic import Field, SecretStr
@@ -34,6 +35,12 @@ META_CORRELATION_ID: Final = "adapter/correlation-id"
 META_IDEMPOTENCY_KEY: Final = "adapter/idempotency-key"
 # Pending Romik (R-006): whether the version travels here or in the tool name.
 META_TOOL_VERSION: Final = "adapter/tool-version"
+
+# Caller-supplied names go into spans, events and the audit log, so malformed or oversized ones
+# are rejected at the entry (like a bad correlation ID) and never reach a sink.
+_TOOL_NAME: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_TOOL_VERSION: Final = re.compile(r"[0-9A-Za-z.+-]{1,64}")
+INVALID_TOOL: Final = "<invalid>"
 
 _DENIALS: Final = frozenset(
     {ErrorCode.NOT_AUTHORIZED, ErrorCode.VERSION_NOT_PERMITTED, ErrorCode.SCOPE_VIOLATION}
@@ -79,19 +86,24 @@ class ObservedEntry:
 
     async def handle(self, call: InboundCall) -> ToolResult:
         supplied = call.meta.get(META_CORRELATION_ID)
-        rejected = supplied is not None and not is_valid_correlation_id(supplied)
-        cid = supplied if supplied is not None and not rejected else self._new_id()
+        bad_cid = supplied is not None and not is_valid_correlation_id(supplied)
+        cid = supplied if supplied is not None and not bad_cid else self._new_id()
+        version = call.meta.get(META_TOOL_VERSION)
+        bad_tool = _TOOL_NAME.fullmatch(call.tool) is None
+        bad_version = version is not None and _TOOL_VERSION.fullmatch(version) is None
+        rejected = bad_cid or bad_tool or bad_version
+        tool = INVALID_TOOL if bad_tool else call.tool
         started = self._clock.monotonic()
 
         with self._telemetry.span(
-            SpanName.TOOL_CALL, SpanAttributes(correlation_id=cid, tool=call.tool)
+            SpanName.TOOL_CALL, SpanAttributes(correlation_id=cid, tool=tool)
         ) as span:
             ctx = RequestContext(
                 correlation_id=cid,
                 correlation_id_generated=cid != supplied,
                 trace_id=span.trace_id,
-                tool=call.tool,
-                requested_version=call.meta.get(META_TOOL_VERSION),
+                tool=tool,
+                requested_version=None if bad_version else version,
                 idempotency_key=call.meta.get(META_IDEMPOTENCY_KEY),
             )
             with bound(ctx):

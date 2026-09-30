@@ -25,6 +25,7 @@ from adapter_verify.observability.fakes import (
     RecordingTelemetry,
 )
 from adapter_verify.observability.service import (
+    INVALID_TOOL,
     META_CORRELATION_ID,
     META_IDEMPOTENCY_KEY,
     META_TOOL_VERSION,
@@ -113,6 +114,29 @@ async def test_invalid_correlation_id_is_rejected_without_running_downstream() -
     assert UUID(result.outcome.meta.correlation_id).version == 7
     assert h.event.error_code is ErrorCode.INVALID_INPUT
     assert "bad id" not in str(h.telemetry.spans[0].attributes)
+
+
+@pytest.mark.parametrize(
+    ("tool", "meta"),
+    [
+        ("x" * 129, {}),
+        ("order.get\u0000", {}),
+        ("order get", {}),
+        ("order.get", {META_TOOL_VERSION: "1" * 65}),
+        ("order.get", {META_TOOL_VERSION: "1.2.0\n"}),
+    ],
+)
+async def test_malformed_tool_or_version_is_rejected_before_any_sink(
+    tool: str, meta: dict[str, str]
+) -> None:
+    h = Harness()
+    result = await h.entry.handle(InboundCall(tool=tool, arguments={}, meta=meta))
+    assert isinstance(result.outcome, ToolFailure)
+    assert result.outcome.error.code is ErrorCode.INVALID_INPUT
+    assert h.seen == []
+    recorded = "order.get" if tool == "order.get" else INVALID_TOOL
+    assert h.event.tool == recorded
+    assert h.telemetry.spans[0].attributes["gen_ai.tool.name"] == recorded
 
 
 async def test_context_carriers_are_read_from_meta() -> None:
