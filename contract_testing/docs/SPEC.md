@@ -233,9 +233,9 @@ All config comes from `ADAPTER_*` environment variables and is validated at star
 | `ADAPTER_DATABASE_DSN` | `SecretStr` | — | yes | postgresql:// connection string. Required. Secret. |
 | `ADAPTER_DATABASE_POOL_MIN_SIZE` | `int` | `1` | no | Minimum pooled connections. |
 | `ADAPTER_DATABASE_POOL_MAX_SIZE` | `int` | `10` | no | Maximum pooled connections. |
-| `ADAPTER_ACCESS_POLICIES_DIR` | `Path` | `WindowsPath('policies')` | no | Policy YAML directory. |
-| `ADAPTER_ACCESS_CATALOG_PATH` | `Path` | `WindowsPath('catalog/tools.yaml')` | no | Tool catalog. |
-| `ADAPTER_ACCESS_CREDENTIALS_PATH` | `Path` | `WindowsPath('credentials.yaml')` | no | Tool to secret-name bindings. |
+| `ADAPTER_ACCESS_POLICIES_DIR` | `Path` | `policies` | no | Policy YAML directory. |
+| `ADAPTER_ACCESS_CATALOG_PATH` | `Path` | `catalog/tools.yaml` | no | Tool catalog. |
+| `ADAPTER_ACCESS_CREDENTIALS_PATH` | `Path` | `credentials.yaml` | no | Tool to secret-name bindings. |
 | `ADAPTER_ACCESS_JWT_ISSUER` | `str \| None` | `None` | no | Expected token issuer (iss). |
 | `ADAPTER_ACCESS_JWT_AUDIENCE` | `str \| None` | `None` | no | Expected token audience (aud). |
 | `ADAPTER_ACCESS_JWKS_URL` | `str \| None` | `None` | no | https URL of the issuer's JWKS. |
@@ -247,19 +247,19 @@ All config comes from `ADAPTER_*` environment variables and is validated at star
 | `ADAPTER_IDEMPOTENCY_RETENTION_H` | `int` | `72` | no | Record retention. Never shorter than any agent's retry window. |
 | `ADAPTER_IDEMPOTENCY_LEASE_OVERRIDES_S` | `dict[str, int]` | `{}` | no | Per-tool lease, e.g. {"order.cancel": 60}. |
 | `ADAPTER_IDEMPOTENCY_RETENTION_OVERRIDES_H` | `dict[str, int]` | `{}` | no | Per-tool retention in hours. |
-| `ADAPTER_CONTRACT_ROOT` | `Path` | `WindowsPath('.')` | no | Repository root; sample paths resolve here. |
-| `ADAPTER_CONTRACT_SOURCES_DIR` | `Path` | `WindowsPath('sources')` | no | Upstream source definitions. |
-| `ADAPTER_CONTRACT_BASELINES_DIR` | `Path` | `WindowsPath('baselines')` | no | Accepted shapes. |
-| `ADAPTER_CONTRACT_CONTRACTS_DIR` | `Path` | `WindowsPath('contracts')` | no | Canonical contracts. |
-| `ADAPTER_CONTRACT_MAPPINGS_DIR` | `Path` | `WindowsPath('mappings')` | no | Translation mappings. |
+| `ADAPTER_CONTRACT_ROOT` | `Path` | `.` | no | Repository root; sample paths resolve here. |
+| `ADAPTER_CONTRACT_SOURCES_DIR` | `Path` | `sources` | no | Upstream source definitions. |
+| `ADAPTER_CONTRACT_BASELINES_DIR` | `Path` | `baselines` | no | Accepted shapes. |
+| `ADAPTER_CONTRACT_CONTRACTS_DIR` | `Path` | `contracts` | no | Canonical contracts. |
+| `ADAPTER_CONTRACT_MAPPINGS_DIR` | `Path` | `mappings` | no | Translation mappings. |
 | `ADAPTER_CONTRACT_INFERRED_MIN_SAMPLES` | `int` | `200` | no | Samples needed before an observed shape is OBSERVED (M4-Q1). |
 | `ADAPTER_CONTRACT_INFERRED_MIN_DAYS` | `int` | `7` | no | Days the samples must span before a shape is OBSERVED. |
 | `ADAPTER_CONTRACT_RENAME_THRESHOLD` | `float` | `0.6` | no | Name similarity for FIELD_RENAMED_SUSPECTED. |
-| `ADAPTER_GOLDEN_ROOT` | `Path` | `WindowsPath('.')` | no | Repository root. |
-| `ADAPTER_GOLDEN_TASKS_DIR` | `Path` | `WindowsPath('golden_tasks')` | no | Task files and agent configs. |
-| `ADAPTER_GOLDEN_DEFINITIONS_DIR` | `Path` | `WindowsPath('catalog/definitions')` | no | Tool descriptions and inputs. |
-| `ADAPTER_GOLDEN_CALIBRATION_DIR` | `Path` | `WindowsPath('tests/golden_selftest/calibration')` | no | Judge calibration cases. |
-| `ADAPTER_GOLDEN_RESULTS_DIR` | `Path` | `WindowsPath('golden-results')` | no | Where results go. |
+| `ADAPTER_GOLDEN_ROOT` | `Path` | `.` | no | Repository root. |
+| `ADAPTER_GOLDEN_TASKS_DIR` | `Path` | `golden_tasks` | no | Task files and agent configs. |
+| `ADAPTER_GOLDEN_DEFINITIONS_DIR` | `Path` | `catalog/definitions` | no | Tool descriptions and inputs. |
+| `ADAPTER_GOLDEN_CALIBRATION_DIR` | `Path` | `tests/golden_selftest/calibration` | no | Judge calibration cases. |
+| `ADAPTER_GOLDEN_RESULTS_DIR` | `Path` | `golden-results` | no | Where results go. |
 | `ADAPTER_GOLDEN_TOKEN_BUDGET` | `Optional[Annotated[int, FieldInfo(annotation=NoneType, required=True, metadata=[Ge(ge=1)])]]` | `None` | no | Suite token budget; runs stop when it is spent. Measure first. |
 | `ADAPTER_GOLDEN_EGRESS_ALLOWED_HOSTS` | `tuple[str, ...]` | `()` | no | Hosts a run may reach, e.g. generativelanguage.googleapis.com. |
 | `ADAPTER_GOLDEN_GEMINI_API_KEY` | `SecretStr \| None` | `None` | no | Gemini API key for the reference agent and judge. Secret. |

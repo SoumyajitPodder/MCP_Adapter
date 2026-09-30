@@ -149,6 +149,12 @@ _MARKER = re.compile(
 )
 
 
+def _default(value: object) -> str:
+    """A default as it would be written in config. Paths are POSIX, so the output doesn't depend
+    on the OS that generated it (repr() gives WindowsPath or PosixPath)."""
+    return value.as_posix() if isinstance(value, Path) else repr(value)
+
+
 def _type_name(annotation: object) -> str:
     text = annotation.__name__ if isinstance(annotation, type) else repr(annotation)
     return _QUALIFIED.sub(r"\1", text).replace("|", "\\|")
@@ -220,7 +226,9 @@ def config() -> str:
         prefix = settings.model_config.get("env_prefix", "")
         for name, info in settings.model_fields.items():
             default = (
-                "—" if info.is_required() else f"`{info.get_default(call_default_factory=True)!r}`"
+                "—"
+                if info.is_required()
+                else f"`{_default(info.get_default(call_default_factory=True))}`"
             )
             rows.append(
                 f"| `{prefix}{name.upper()}` | `{_type_name(info.annotation)}` | {default} "
