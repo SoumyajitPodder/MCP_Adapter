@@ -71,12 +71,18 @@ class BufferedEventSink:
             self._alerted = False
 
     async def run(self, interval_s: float) -> None:
-        """Flush whenever events arrive, at most every ``interval_s``. Cancel to stop."""
+        """Flush whenever events arrive, at most every ``interval_s``. Cancel to stop.
+
+        Events left after a failed write are retried every ``interval_s``, without waiting for
+        a new event: the last events before a quiet spell are often the must-keep ones.
+        """
         try:
             while True:
                 await self._wakeup.wait()
                 self._wakeup.clear()
                 await self.flush()
+                if self.pending:
+                    self._wakeup.set()
                 await asyncio.sleep(interval_s)
         finally:
             await self.flush()

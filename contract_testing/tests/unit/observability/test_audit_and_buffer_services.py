@@ -184,6 +184,22 @@ async def test_run_flushes_until_cancelled_then_drains() -> None:
     assert len(store.events) == 2
 
 
+async def test_run_retries_a_failed_write_without_a_new_event() -> None:
+    sink, store, _ = _buffer(capacity=10)
+    store.fail_next = 1
+    task = asyncio.create_task(sink.run(0.001))
+    sink.emit(_event(1, critical=True))
+    for _ in range(100):
+        await asyncio.sleep(0.001)
+        if store.events:
+            break
+    written = [e.span_id for e in store.events]  # before cancelling, which drains anyway
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert written == ["s1"]
+
+
 async def test_buffer_rejects_nonsense_sizes() -> None:
     with pytest.raises(ValueError, match="positive"):
         BufferedEventSink(MemoryEventStore(), MemoryDiagnostics(), capacity=0, batch_size=1)
