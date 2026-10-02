@@ -1,0 +1,49 @@
+{
+  "server": { "host": "127.0.0.1", "port": 8787, "stateFile": "./state.json", "batchIntervalSeconds": 0 },
+  "tokens": [
+    { "name": "sandbox-agent", "role": "agent", "tokenEnv": "LC_AGENT_TOKEN" },
+    { "name": "ops",           "role": "admin", "tokenEnv": "LC_ADMIN_TOKEN" }
+  ],
+  "connectors": { "att-legacy": { "type": "http-json", "timeoutMs": 5000 } },
+  "bindings": [
+    {
+      "id": "check_device_inventory", "displayName": "Device inventory", "connector": "att-legacy",
+      "description": "Stock level and warehouse for a device SKU.",
+      "inputs": { "properties": { "sku": { "type": "string", "pattern": "^SKU-[A-Z0-9]{1,20}$", "description": "e.g. SKU-IP15PM" } }, "required": ["sku"] },
+      "contract": { "version": "1.0.0", "fields": [
+        { "name": "sku", "type": "string" }, { "name": "device_name", "type": "string" },
+        { "name": "quantity_available", "type": "integer" }, { "name": "warehouse", "type": "string" },
+        { "name": "backorder_eta", "type": "string", "optional": true } ] },
+      "source": { "versions": { "v1": {
+        "probes": ["http://127.0.0.1:5001/api/v1/inventory/SKU-IP15PM", "http://127.0.0.1:5001/api/v1/inventory/SKU-GS24U", "http://127.0.0.1:5001/api/v1/inventory/SKU-PXL9PR"],
+        "lookup": { "url": "http://127.0.0.1:5001/api/v1/inventory/{sku}" } } } }
+    },
+    {
+      "id": "get_service_ticket_status", "displayName": "Service ticket", "connector": "att-legacy",
+      "description": "Status, priority and assigned technician for a service ticket.",
+      "inputs": { "properties": { "ticket_id": { "type": "string", "pattern": "^TICKET-[0-9]{1,10}$", "description": "e.g. TICKET-5001" } }, "required": ["ticket_id"] },
+      "contract": { "version": "1.0.0", "fields": [
+        { "name": "ticket_id", "type": "string" }, { "name": "issue_type", "type": "string" }, { "name": "sku", "type": "string" },
+        { "name": "status", "type": "enum", "values": ["open", "in_progress", "resolved"] },
+        { "name": "priority", "type": "enum", "values": ["low", "medium", "high"] },
+        { "name": "technician_assigned", "type": "string", "optional": true },
+        { "name": "opened_date", "type": "date" } ] },
+      "source": { "versions": { "v1": {
+        "probes": ["http://127.0.0.1:5001/api/v1/service-tickets/TICKET-5001", "http://127.0.0.1:5001/api/v1/service-tickets/TICKET-5002", "http://127.0.0.1:5001/api/v1/service-tickets/TICKET-5003"],
+        "lookup": { "url": "http://127.0.0.1:5001/api/v1/service-tickets/{ticket_id}" } } } }
+    },
+    {
+      "id": "get_order_status", "displayName": "Order status", "connector": "att-legacy",
+      "description": "Status, carrier and tracking for an order.",
+      "inputs": { "properties": { "order_id": { "type": "string", "pattern": "^ORDER-[0-9]{1,10}$", "description": "e.g. ORDER-8001" } }, "required": ["order_id"] },
+      "contract": { "version": "1.0.0", "fields": [
+        { "name": "order_id", "type": "string" }, { "name": "sku", "type": "string" }, { "name": "quantity", "type": "integer" },
+        { "name": "status", "type": "enum", "values": ["processing", "shipped", "delivered", "backordered"] },
+        { "name": "carrier", "type": "string", "optional": true }, { "name": "tracking_number", "type": "string", "optional": true },
+        { "name": "expected_delivery", "type": "date", "optional": true } ] },
+      "source": { "versions": { "v1": {
+        "probes": ["http://127.0.0.1:5001/api/v1/orders/ORDER-8001", "http://127.0.0.1:5001/api/v1/orders/ORDER-8002", "http://127.0.0.1:5001/api/v1/orders/ORDER-8003"],
+        "lookup": { "url": "http://127.0.0.1:5001/api/v1/orders/{order_id}" } } } }
+    }
+  ]
+}

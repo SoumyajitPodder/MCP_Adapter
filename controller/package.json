@@ -1,0 +1,12 @@
+{
+  "name": "lifecycle-controller",
+  "version": "0.1.0",
+  "description": "Detects upstream drift, absorbs what is safe, and routes the rest to a person — for any API, file feed, or database.",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./connectors": "./connectors/index.js" },
+  "scripts": { "test": "node --no-warnings --test tests/*.test.mjs" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

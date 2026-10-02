@@ -6,7 +6,7 @@
 export function makeContracts() {
   return {
     'order.get': {
-      version: '1.2.0', state: 'ACTIVE', sunsetDay: null,
+      version: '1.2.0', state: 'ACTIVE', sunsetAt: null,
       fields: [
         { name: 'order_id', type: 'string' },
         { name: 'status', type: 'enum', values: ['in_progress', 'completed', 'cancelled'] },
@@ -15,7 +15,7 @@ export function makeContracts() {
       ]
     },
     'service.get': {
-      version: '1.0.0', state: 'ACTIVE', sunsetDay: null,
+      version: '1.0.0', state: 'ACTIVE', sunsetAt: null,
       fields: [
         { name: 'service_id', type: 'string' },
         { name: 'status', type: 'enum', values: ['active', 'suspended', 'terminated'] },
@@ -24,7 +24,7 @@ export function makeContracts() {
       ]
     },
     'inventory.snapshot': {
-      version: '1.0.0', state: 'ACTIVE', sunsetDay: null,
+      version: '1.0.0', state: 'ACTIVE', sunsetAt: null,
       fields: [
         { name: 'item_id', type: 'string' },
         { name: 'status', type: 'enum', values: ['available', 'reserved', 'decommissioned'] },

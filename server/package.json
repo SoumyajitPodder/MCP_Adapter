@@ -1,0 +1,22 @@
+{
+  "name": "lifecycle-controller-server",
+  "version": "0.1.0",
+  "description": "HTTP, SSE and MCP front for the lifecycle controller: stable tools for agents, controls for people.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "lifecycle-server": "bin/lifecycle-server.js"
+  },
+  "scripts": {
+    "start": "node bin/lifecycle-server.js",
+    "test": "node --no-warnings --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

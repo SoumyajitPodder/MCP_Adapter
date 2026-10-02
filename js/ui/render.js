@@ -11,17 +11,15 @@
 // across every binding rather than belonging to one.
 
 import { $, esc } from './dom.js';
-import { state, CONTRACTS } from '../state.js';
-import { primary, adapterLabel, versionLabel } from '../core/utils.js';
-import { health, untargeted, evalCandidate, withChoices } from '../core/lifecycle.js';
-import { INJ } from '../simulation/upstreams.js';
+import { controller, sim, clock, ui } from '../ctx.js';
+import { primary, adapterLabel, versionLabel } from '../../controller/utils.js';
 import { SCENARIOS } from '../../data/scenarios.js';
 
 let animTimer = null;
 const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const selB = () => state.bindings.find(b => b.id === state.sel);
-const selA = b => b.adapters.find(a => a.id === state.selAdapter && a.state !== 'retired') || primary(b);
+const selB = () => controller.state.bindings.find(b => b.id === ui.sel) || controller.state.bindings[0];
+const selA = b => b.adapters.find(a => a.id === ui.selAdapter && a.state !== 'retired') || primary(b);
 
 const pct = n => Math.round(n * 100);
 const confColor = score => score >= 0.8 ? 'var(--pass)' : score >= 0.6 ? 'var(--review)' : 'var(--fail)';
@@ -48,9 +46,9 @@ function confBlock(rn) {
 // a second after every batch.
 export function animate() {
   clearInterval(animTimer);
-  if (reduce) { state.reveal = 6; render(); return; }
-  state.reveal = 0; render();
-  animTimer = setInterval(() => { state.reveal++; if (state.reveal >= 6) clearInterval(animTimer); renderPipelineTab(); }, 170);
+  if (reduce) { ui.reveal = 6; render(); return; }
+  ui.reveal = 0; render();
+  animTimer = setInterval(() => { ui.reveal++; if (ui.reveal >= 6) clearInterval(animTimer); renderPipelineTab(); }, 170);
 }
 
 function fmtClock(mins) {
@@ -65,20 +63,20 @@ function fmtClock(mins) {
 // ticker between day boundaries, so the clock can animate smoothly without
 // re-rendering the whole page dozens of times a second.
 export function renderClock() {
-  $('#day').textContent = state.day;
-  $('#time').textContent = fmtClock(state.clockMinutes);
+  $('#day').textContent = clock.state.day;
+  $('#time').textContent = fmtClock(clock.state.clockMinutes);
   const sel = $('#speedSel');
-  if (sel) sel.value = String(state.speed);
+  if (sel) sel.value = String(ui.speed);
 }
 
 function renderStats() {
-  const h = state.bindings.filter(b => health(b) === 'PASS').length;
-  const open = state.reviews.filter(r => r.status === 'open').length;
+  const h = controller.state.bindings.filter(b => controller.health(b) === 'PASS').length;
+  const open = controller.state.reviews.filter(r => r.status === 'open').length;
   $('#stats').innerHTML = [
-    [`${h}/${state.bindings.length}`, 'bindings passing'],
+    [`${h}/${controller.state.bindings.length}`, 'bindings passing'],
     [open, 'reviews waiting'],
-    [state.metrics.absorbed, 'changes absorbed automatically'],
-    [state.metrics.blocked, 'breaking changes blocked']
+    [controller.state.metrics.absorbed, 'changes absorbed automatically'],
+    [controller.state.metrics.blocked, 'breaking changes blocked']
   ].map(([n, l]) => `<div class="stat"><b>${n}</b><small>${l}</small></div>`).join('');
 }
 
@@ -89,16 +87,16 @@ const READINESS_LABEL = {
 
 function renderBatchOverview() {
   const el = $('#batchOverview');
-  if (!state.batchHistory.length) { el.innerHTML = ''; return; }
-  const latest = state.batchHistory[0];
-  const cur = state.batchHistory.find(x => x.n === state.selBatch) || latest;
+  if (!controller.state.batchHistory.length) { el.innerHTML = ''; return; }
+  const latest = controller.state.batchHistory[0];
+  const cur = controller.state.batchHistory.find(x => x.n === ui.selBatch) || latest;
 
   const rows = cur.results.map(r => {
     const [sym, label] = READINESS_LABEL[r.readiness] || ['·', r.readiness];
     return `<tr><td>${esc(r.tool)}</td><td><span class="pill ${r.readiness}">${sym} ${label}</span></td></tr>`;
   }).join('');
 
-  const hist = state.batchHistory.slice(0, 12).map(x => {
+  const hist = controller.state.batchHistory.slice(0, 12).map(x => {
     const counts = x.results.reduce((m, r) => { m[r.readiness] = (m[r.readiness] || 0) + 1; return m; }, {});
     const summary = ['PASS', 'REVIEW', 'FAIL'].map(k => counts[k] ? `${counts[k]} ${READINESS_LABEL[k][1].toLowerCase()}` : null).filter(Boolean).join(', ') || 'no issues';
     return `<button class="bhistchip ${x.n === cur.n ? 'sel' : ''}" data-act="viewbatch" data-arg="${x.n}">#${x.n} · day ${x.day}<span class="tiny">${summary}</span></button>`;
@@ -113,17 +111,17 @@ function renderBatchOverview() {
     <div class="bsummary">${cur.results.length} bindings evaluated<br>${cur.sourcesChecked} API/file sources checked</div>
     <table class="btable"><tbody>${rows}</tbody></table>
     <hr class="brule">
-    ${state.batchHistory.length > 1 ? `<div class="bhistrow">${hist}</div>` : ''}
+    ${controller.state.batchHistory.length > 1 ? `<div class="bhistrow">${hist}</div>` : ''}
   `;
 }
 
 /* =========================== sidebar =========================== */
 
 function renderBindings() {
-  $('#bcount').textContent = state.bindings.length + ' tools';
-  $('#bindings').innerHTML = state.bindings.map(b => {
-    const h = health(b), p = primary(b);
-    return `<button class="bnd ${b.id === state.sel ? 'sel' : ''}" data-act="sel" data-arg="${b.id}">
+  $('#bcount').textContent = controller.state.bindings.length + ' tools';
+  $('#bindings').innerHTML = controller.state.bindings.map(b => {
+    const h = controller.health(b), p = primary(b);
+    return `<button class="bnd ${b.id === ui.sel ? 'sel' : ''}" data-act="sel" data-arg="${b.id}">
       <div class="r1"><span class="nm">${esc(b.displayName || b.tool)}</span><span class="pill ${h}">${h}</span></div>
       <div class="r2">${b.kind} from ${b.system}<br>serving ${versionLabel(b, p)}</div></button>`;
   }).join('');
@@ -131,22 +129,22 @@ function renderBindings() {
 
 function renderSim() {
   const b = selB();
-  const pending = id => state.scenarioQueue.some(q => q.bindingId === b.id && q.injectId === id);
-  const versionPending = state.scenarioQueue.some(q => q.bindingId === b.id && INJ.find(i => i.id === q.injectId && i.custom));
+  const pending = id => sim.state.scenarioQueue.some(q => q.bindingId === b.id && q.injectId === id);
+  const versionPending = sim.state.scenarioQueue.some(q => q.bindingId === b.id && sim.INJ.find(i => i.id === q.injectId && i.custom));
   $('#sim').innerHTML = `<p class="tiny" style="margin-bottom:8px">Applies to <b>${esc(b.displayName || b.tool)}</b> (${b.kind}). Each click adds to the drift queue above; the change lands at the next batch run, and can be cancelled until then.</p><div class="sim-grid">` +
-    INJ.filter(i => i.kinds.includes(b.kind)).map(i => {
-      const off = pending(i.id) || (i.custom && (b.upstream.sunsetDay != null || versionPending));
+    sim.INJ.filter(i => i.kinds.includes(b.kind)).map(i => {
+      const off = pending(i.id) || (i.custom && (sim.retirementPending(b) || versionPending));
       return `<button class="btn sm ${i.custom ? 'warnish' : ''}" data-act="inject" data-arg="${i.id}" ${off ? 'disabled' : ''}>${i.label}</button>`;
     }).join('') + `</div>`;
 }
 
 function isBindingBusy(bindingId) {
-  return SCENARIOS.some(s => state.activeScenarios.includes(s.id) && s.bindingId === bindingId);
+  return SCENARIOS.some(s => sim.state.activeScenarios.includes(s.id) && s.bindingId === bindingId);
 }
 
 function renderScenarios() {
   $('#scenarios').innerHTML = SCENARIOS.map(sc => {
-    const mine = state.activeScenarios.includes(sc.id);
+    const mine = sim.state.activeScenarios.includes(sc.id);
     const busy = isBindingBusy(sc.bindingId);
     const label = mine ? 'In the queue' : busy ? 'Binding busy' : 'Add scenario';
     const why = !mine && busy ? ' title="Another scenario is already queued for this binding"' : '';
@@ -162,11 +160,11 @@ function renderScenarios() {
 // Everything that is about to happen to an upstream — manual injections
 // and scenario steps alike — with a way to call any of it off.
 function renderDriftQueue() {
-  const q = [...state.scenarioQueue].sort((a, b) => a.day - b.day);
+  const q = [...sim.state.scenarioQueue].sort((a, b) => a.day - b.day);
   $('#qcount').textContent = q.length ? `${q.length} pending` : '';
   $('#driftQueue').innerHTML = q.length
     ? `<ul class="upqueue">${q.map(u => `<li>
-        <div><b>${u.day <= state.day ? 'next batch' : 'day ' + u.day}</b> · ${esc(u.bindingId)}</div>
+        <div><b>${u.day <= clock.state.day ? 'next batch' : 'day ' + u.day}</b> · ${esc(u.bindingId)}</div>
         <div class="tiny">${esc(u.note)} <span class="qsrc">${esc(u.scenarioName)}</span></div>
         <button class="btn sm cancelq" data-act="cancelqueue" data-arg="${u.id}">Cancel</button>
       </li>`).join('')}</ul>`
@@ -177,24 +175,24 @@ function renderDriftQueue() {
 
 function stageClass(i, run) {
   if (!run) return 'pending';
-  if (i >= state.reveal) return 'pending';
+  if (i >= ui.reveal) return 'pending';
   return run.stages[i].status;
 }
 
 function renderPipelineTab() {
-  const b = selB(), a = selA(b), c = CONTRACTS[b.tool], run = a.lastRun;
+  const b = selB(), a = selA(b), c = b.contract, run = a.lastRun;
   const names = ['Version check', 'Schema comparison', 'Adapter compatibility', 'Smoke test', 'Canonical validation', 'Readiness'];
   const symbol = { pass: '✓', warn: '!', fail: '×', skip: '–', pending: '·' };
-  const selStage = state.selStage != null ? state.selStage : (run ? Math.max(0, run.stages.findIndex(s => s.status === 'fail' || s.status === 'warn')) : 0);
+  const selStage = ui.selStage != null ? ui.selStage : (run ? Math.max(0, run.stages.findIndex(s => s.status === 'fail' || s.status === 'warn')) : 0);
   const tabs = b.adapters.filter(x => x.state !== 'retired').map(x =>
     `<button class="tab ${x.id === a.id ? 'sel' : ''}" data-act="seladapter" data-arg="${x.id}">${adapterLabel(b, x)}</button>`
   ).join('');
-  const openMigration = state.reviews.find(r => r.kind === 'migration' && r.bindingId === b.id && r.status === 'open');
+  const openMigration = controller.state.reviews.find(r => r.kind === 'migration' && r.bindingId === b.id && r.status === 'open');
   const migratePointer = openMigration
     ? `<div class="detail migrate-pointer"><b>This API needs attention.</b> ${esc(openMigration.reasonText)} Open <b>Reviews</b> in the right panel to see what's recommended.</div>`
     : '';
   const st = run ? run.stages[selStage] : null;
-  const call = state.calls[b.id];
+  const call = ui.calls[b.id];
 
   // This view is read-only on purpose: every action that changes an
   // adapter's state now lives in the migration review card instead, so
@@ -204,16 +202,16 @@ function renderPipelineTab() {
     if (stt === 'tested') gate = (x.lastRun && x.lastRun.readiness === 'PASS') ? 'passed its checks — see Reviews to promote it' : 'needs a passing batch run';
     if (stt === 'canary') {
       const ok = x.lastRun && x.lastRun.readiness === 'PASS' && x.canaryPass >= 1;
-      const faultBtn = `<button class="btn sm warnish" data-act="breakcanary" data-arg="${x.id}" ${x.fault ? 'disabled' : ''}>${x.fault ? 'Failure queued' : 'Simulate canary failure'}</button>`;
+      const faultBtn = `<button class="btn sm warnish" data-act="breakcanary" data-arg="${x.id}" ${sim.hasFault(x.id) ? 'disabled' : ''}>${sim.hasFault(x.id) ? 'Failure queued' : 'Simulate canary failure'}</button>`;
       btn = faultBtn;
-      gate = x.fault ? 'a correctness bug is queued — run a batch to see it surface and roll back' : (ok ? `clean so far — see Reviews to promote it` : 'needs one clean batch in canary');
+      gate = sim.hasFault(x.id) ? 'a correctness bug is queued — run a batch to see it surface and roll back' : (ok ? `clean so far — see Reviews to promote it` : 'needs one clean batch in canary');
     }
     if (stt === 'rolled_back') { gate = 'failed in canary and was rolled back automatically; the previous primary was never touched'; }
     if (stt === 'deprecated') btn = `<button class="btn sm" data-act="retire" data-arg="${x.id}">Retire</button>`;
     return `<div class="chip ${x.id === a.id ? 'sel' : ''}"><b>${versionLabel(b, x)}</b>mapping v${x.mapping.version}${btn}${gate ? `<span class="gate">${gate}</span>` : ''}</div>`;
   }).join('')}</div>`;
 
-  const clane = (stt, label) => `<div class="lane" style="min-height:64px"><h4>${label}</h4>${c.state === stt ? `<div class="chip"><b>${b.tool}@${c.version}</b>${stt === 'ACTIVE' ? `<button class="btn sm" data-act="deprecate" data-arg="${b.tool}">Deprecate contract</button><span class="gate">sunset lands 5 days later</span>` : ''}${stt === 'DEPRECATED' ? `<span class="gate">sunset on day ${c.sunsetDay}</span>` : ''}</div>` : ''}</div>`;
+  const clane = (stt, label) => `<div class="lane" style="min-height:64px"><h4>${label}</h4>${c.state === stt ? `<div class="chip"><b>${b.tool}@${c.version}</b>${stt === 'ACTIVE' ? `<button class="btn sm" data-act="deprecate" data-arg="${b.tool}">Deprecate contract</button><span class="gate">sunset lands 5 days later</span>` : ''}${stt === 'DEPRECATED' ? `<span class="gate">sunset on day ${clock.format(c.sunsetAt)}</span>` : ''}</div>` : ''}</div>`;
 
   const ready = run ? `<div class="ready ${run.readiness}"><b>${run.readiness}</b><span>${esc(run.stages[5].lines[0])}. Last run on day ${run.day}, classification ${run.overall.replace('_', ' ').toLowerCase()}.</span></div>` : '';
 
@@ -227,10 +225,10 @@ function renderPipelineTab() {
    </div>
    <div class="card">
      <h2>Sanity pipeline <small>${run ? `${versionLabel(b, a)}, day ${run.day}` : 'not run yet'}</small></h2>
-     <div class="path">${names.map((n, i) => { const sc = stageClass(i, run); const stx = run && i < state.reveal ? run.stages[i].status : 'pending';
+     <div class="path">${names.map((n, i) => { const sc = stageClass(i, run); const stx = run && i < ui.reveal ? run.stages[i].status : 'pending';
        return `<button class="stn ${sc} ${i === selStage ? 'sel' : ''}" data-act="stage" data-arg="${i}"><span class="dot">${symbol[sc]}</span><span class="nm">${n}</span><span class="st">${stx === 'pending' ? 'waiting' : stx}</span></button>`; }).join('')}</div>
-     ${st && state.reveal >= 6 ? `<div class="detail"><h4>${names[selStage]}</h4><ul>${st.lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>` : ''}
-     ${state.reveal >= 6 ? ready : ''}
+     ${st && ui.reveal >= 6 ? `<div class="detail"><h4>${names[selStage]}</h4><ul>${st.lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>` : ''}
+     ${ui.reveal >= 6 ? ready : ''}
    </div>
    <div class="card">
      <h2>Adapter lifecycle <small>tested → canary → primary → deprecated → retired</small></h2>
@@ -280,7 +278,7 @@ function migrationFieldChart(fieldScores) {
 // going in. The confidence chart is the same one a probable rename shows;
 // it's what the recommendation is based on, not a separate claim.
 function migrationCard(r) {
-  const b = state.bindings.find(x => x.id === r.bindingId);
+  const b = controller.state.bindings.find(x => x.id === r.bindingId);
   const active = r.adapterId ? b.adapters.find(x => x.id === r.adapterId) : null;
   let body = '', action = '', tone = 'REVIEW';
 
@@ -293,8 +291,22 @@ function migrationCard(r) {
       action = `<button class="btn primary sm" data-act="startmigration" data-arg="${esc(r.targetVersion)}" data-binding="${b.id}">Start migration to ${esc(r.targetVersion)}</button>`;
       tone = 'PASS';
     } else {
-      body = `<p>Some fields couldn't be matched automatically with confidence (shown below). <b>Recommended: start the migration anyway</b> — low-confidence fields fall back to a safe, exact-name mapping, and can be corrected afterward from the Mapping tab.</p>${migrationFieldChart(prev.fieldScores)}`;
-      action = `<button class="btn primary sm" data-act="startmigration" data-arg="${esc(r.targetVersion)}" data-binding="${b.id}">Start migration to ${esc(r.targetVersion)} (safe fallback)</button>`;
+      if (r.canFallback === false) {
+        // This upstream can't supply a mapping on its own, so a person confirms
+        // which upstream field holds each unresolved one and what each
+        // unfamiliar status code means. The preview is recomputed on every pick.
+        const picks = ui.migrationChoices[r.id] || { fields: {}, values: {} };
+        const live = ui.migrationPreview[r.id] || prev;
+        const needFields = prev.fieldScores.filter(fs => !fs.resolved);
+        const fieldSel = needFields.map(fs => `<div class="choicerow"><span>${esc(fs.target)}: which upstream field holds this?</span><select data-act="choosesrc" data-rv="${r.id}" data-target="${esc(fs.target)}"><option value="">choose…</option>${(fs.candidates || []).map(c => `<option value="${esc(c.path)}" ${picks.fields[fs.target] === c.path ? 'selected' : ''}>${esc(c.path)} (${pct(c.score)}% match)</option>`).join('')}</select></div>`).join('');
+        const valueSel = (live.unresolvedValues || []).map(v => `<div class="choicerow"><span>${esc(v.target)}: the upstream value "${esc(v.value)}" means…</span><select data-act="choosevalue" data-rv="${r.id}" data-key="${esc(v.key)}"><option value="">choose…</option>${v.options.map(o => `<option value="${esc(o)}" ${picks.values[v.key] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`).join('');
+        const ready = needFields.every(fs => picks.fields[fs.target]) && live.ok;
+        body = `<p>Some fields couldn't be matched with confidence, and this upstream can't supply a mapping on its own. <b>A person needs to confirm</b> which upstream field holds each one${(live.unresolvedValues || []).length ? ', and what its unfamiliar values mean' : ''} — the closest candidates are ranked below.</p>${migrationFieldChart(live.fieldScores)}${fieldSel}${valueSel}`;
+        action = `<button class="btn primary sm" data-act="startmigration" data-arg="${esc(r.targetVersion)}" data-binding="${b.id}" data-rv="${r.id}" ${ready ? '' : 'disabled'}>Start migration with these choices</button>`;
+      } else {
+        body = `<p>Some fields couldn't be matched automatically with confidence (shown below). <b>Recommended: start the migration anyway</b> — low-confidence fields fall back to a safe, exact-name mapping, and can be corrected afterward from the Mapping tab.</p>${migrationFieldChart(prev.fieldScores)}`;
+        action = `<button class="btn primary sm" data-act="startmigration" data-arg="${esc(r.targetVersion)}" data-binding="${b.id}">Start migration to ${esc(r.targetVersion)} (safe fallback)</button>`;
+      }
     }
   } else if (r.stage === 'checking') {
     body = `<p>Checking the candidate — this will update on the next batch.</p>`;
@@ -327,8 +339,8 @@ function migrationCard(r) {
 }
 
 function reviewCard(r) {
-  const b = state.bindings.find(x => x.id === r.bindingId), a = b.adapters.find(x => x.id === r.adapterId);
-  const live = r.status === 'open' ? evalCandidate(b, a, withChoices(r)) : r.eval;
+  const b = controller.state.bindings.find(x => x.id === r.bindingId), a = b.adapters.find(x => x.id === r.adapterId);
+  const live = r.eval; // kept current by the controller (on every batch and on every choice)
   const sb = live.sandbox, sh = live.shadow, allChosen = r.choices.every(c => c.selected);
   const gateOk = r.status === 'open' && allChosen && sb.valid === sb.total && sh.diffs.length === 0;
   return `<div class="rev"><header><b>${r.id} ${r.bindingId}</b><span class="pill ${r.status}">${r.status}</span></header>
@@ -348,13 +360,13 @@ function reviewCard(r) {
 // Open reviews are shown in full, since they need a decision. Resolved
 // ones shrink to a single line so they don't crowd out the ones that matter.
 function renderReviewPanel() {
-  const open = state.reviews.filter(r => r.status === 'open');
+  const open = controller.state.reviews.filter(r => r.status === 'open');
   const openMigrations = open.filter(r => r.kind === 'migration');
   const openMappings = open.filter(r => r.kind !== 'migration');
-  const done = state.reviews.filter(r => r.status !== 'open').slice(0, 5);
+  const done = controller.state.reviews.filter(r => r.status !== 'open').slice(0, 5);
   $('#rcount').textContent = open.length ? `${open.length} need${open.length === 1 ? 's' : ''} a decision` : '';
   $('#reviewCard').classList.toggle('urgent', open.length > 0);
-  if (!state.reviews.length) {
+  if (!controller.state.reviews.length) {
     $('#reviewPanelBody').innerHTML = '<p class="empty">Nothing needs a decision. When the controller meets a change it cannot safely settle on its own, it lands here.</p>';
     return;
   }
@@ -369,7 +381,7 @@ function renderReviewPanel() {
 // breakdown a reviewer would see; everything else is a fixed rule with no
 // guesswork involved, and says so.
 function renderAutoFixPanel() {
-  const fixed = state.log.filter(l => l.action === 'DRIFT_ABSORBED').slice(0, 8);
+  const fixed = controller.state.log.filter(l => l.action === 'DRIFT_ABSORBED').slice(0, 8);
   $('#autoFixBody').innerHTML = fixed.length
     ? fixed.map(l => `<div class="autofix">
         <div class="tiny"><b>day ${l.day}</b> · ${esc(l.binding)}</div>
@@ -413,9 +425,9 @@ function matchesAudit(l, q) {
 // and replacing them via innerHTML on every keystroke would drop focus and
 // cursor position mid-search.
 export function renderAuditTab() {
-  const q = state.auditQuery;
-  const rows = state.log.filter(l => matchesAudit(l, q));
-  $('#auditCount').textContent = `${rows.length} of ${state.log.length} entries`;
+  const q = ui.auditQuery;
+  const rows = controller.state.log.filter(l => matchesAudit(l, q));
+  $('#auditCount').textContent = `${rows.length} of ${controller.state.log.length} entries`;
   $('#auditRows').innerHTML = rows.length
     ? rows.map(l => `<tr>
         <td class="mono">day ${l.day}</td>
@@ -440,11 +452,11 @@ function renderAuditFilterOptions() {
 // language the review cards use, so the story is consistent whether
 // someone reads it here or gets pulled into a review about it.
 function apiStatusReason(b) {
-  const h = health(b);
+  const h = controller.health(b);
   if (h === 'SUNSET') return 'Retired — no longer served.';
-  const openMig = state.reviews.find(r => r.kind === 'migration' && r.bindingId === b.id && r.status === 'open');
+  const openMig = controller.state.reviews.find(r => r.kind === 'migration' && r.bindingId === b.id && r.status === 'open');
   if (openMig) return openMig.stage === 'no_target' ? `Blocked, unfixable from here — ${openMig.reasonText}` : openMig.reasonText;
-  const openMap = state.reviews.find(r => r.kind !== 'migration' && r.bindingId === b.id && r.status === 'open');
+  const openMap = controller.state.reviews.find(r => r.kind !== 'migration' && r.bindingId === b.id && r.status === 'open');
   if (openMap) return `Waiting on a decision — ${openMap.events[0] || 'a change needs review'}`;
   if (h === 'FAIL') return 'Blocked for a reason not yet captured as a review — check the Pipeline tab.';
   if (h === 'REVIEW') return 'Something changed and needs a decision — see Reviews.';
@@ -453,9 +465,9 @@ function apiStatusReason(b) {
 
 function apiRow(b) {
   const p = primary(b);
-  const h = health(b);
+  const h = controller.health(b);
   const rolledBack = b.adapters.filter(x => x.state === 'rolled_back').length;
-  const confirming = state.confirmRemove === b.id;
+  const confirming = ui.confirmRemove === b.id;
   return `<tr>
     <td><b>${esc(b.displayName || b.tool)}</b><div class="tiny mono">${esc(b.id)}</div></td>
     <td>${b.kind}</td>
@@ -467,8 +479,8 @@ function apiRow(b) {
 }
 
 export function renderApisTab() {
-  $('#apiCount').textContent = state.bindings.length + ' configured';
-  $('#apiRows').innerHTML = state.bindings.map(apiRow).join('');
+  $('#apiCount').textContent = controller.state.bindings.length + ' configured';
+  $('#apiRows').innerHTML = controller.state.bindings.map(apiRow).join('');
 }
 
 /* ================================ tabs ================================ */
@@ -478,33 +490,33 @@ const MAIN_TABS = ['pipeline', 'apis', 'mapping', 'audit'];
 function renderTabBar() {
   MAIN_TABS.forEach(t => {
     const btn = $(`#mtab-${t}`);
-    if (btn) btn.classList.toggle('sel', state.mainTab === t);
+    if (btn) btn.classList.toggle('sel', ui.mainTab === t);
   });
   MAIN_TABS.forEach(t => {
     const panel = $(`#tab${t.charAt(0).toUpperCase()}${t.slice(1)}`);
-    if (panel) panel.hidden = state.mainTab !== t;
+    if (panel) panel.hidden = ui.mainTab !== t;
   });
 }
 
 function renderSidebarToggle() {
-  document.body.classList.toggle('sidebar-collapsed', !state.sidebarOpen);
+  document.body.classList.toggle('sidebar-collapsed', !ui.sidebarOpen);
   const arrow = $('#pullArrow');
-  if (arrow) arrow.textContent = state.sidebarOpen ? '‹' : '›';
+  if (arrow) arrow.textContent = ui.sidebarOpen ? '‹' : '›';
   const pull = $('#sidebarPull');
-  if (pull) pull.title = state.sidebarOpen ? 'Hide sidebar' : 'Show sidebar';
+  if (pull) pull.title = ui.sidebarOpen ? 'Hide sidebar' : 'Show sidebar';
 }
 
 // The right panel is where a person is needed, so its handle does more
 // than the left one: it carries a count, and pulses while anything is
 // waiting — which stays visible even when the panel is tucked away.
 function renderRightToggle() {
-  document.body.classList.toggle('rightpanel-collapsed', !state.rightOpen);
-  const open = state.reviews.filter(r => r.status === 'open').length;
+  document.body.classList.toggle('rightpanel-collapsed', !ui.rightOpen);
+  const open = controller.state.reviews.filter(r => r.status === 'open').length;
   const arrow = $('#rightArrow');
-  if (arrow) arrow.textContent = state.rightOpen ? '›' : '‹';
+  if (arrow) arrow.textContent = ui.rightOpen ? '›' : '‹';
   const pull = $('#rightPull');
   if (pull) {
-    pull.title = state.rightOpen ? 'Hide reviews' : (open ? `Show reviews — ${open} waiting` : 'Show reviews');
+    pull.title = ui.rightOpen ? 'Hide reviews' : (open ? `Show reviews — ${open} waiting` : 'Show reviews');
     pull.classList.toggle('alert', open > 0);
   }
   const badge = $('#rightBadge');
@@ -512,6 +524,7 @@ function renderRightToggle() {
 }
 
 export function render() {
+  if (!controller.state.bindings.length) return; // mid-reset: the render after the reset completes will draw everything
   renderClock();
   renderStats();
   renderBatchOverview();

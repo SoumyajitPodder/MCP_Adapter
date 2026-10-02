@@ -8,7 +8,7 @@
 // `offset` is measured in days from the day the scenario is activated, not
 // an absolute day number, so a scenario behaves the same whether it's
 // started on day 0 or day 12. `injectId` must match an id in INJ
-// (js/simulation/upstreams.js).
+// (simulation/simulation.js).
 
 export const SCENARIOS = [
   {

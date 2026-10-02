@@ -298,3 +298,6 @@ pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-rad
   .stn:nth-child(4)::before{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* migration card: choosing which upstream field holds a canonical field */
+.choicerow{display:flex;flex-direction:column;gap:3px;margin:8px 0;font-size:12.5px}

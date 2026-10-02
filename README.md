@@ -190,6 +190,8 @@ The stages you'll see, one at a time:
 * **Rolled back** — the candidate failed and was rolled back automatically. The card says plainly that the original version was never affected, and offers **Try migration again**.
 * **Can't be fixed from here** — there is no newer version available at all. The card says so honestly rather than offering a button that can't do anything, since some breakage really does need a person outside this tool.
 
+A binding can be migrated more than once — moving from v2 to v3 and later from v3 to v4 works the same way each time, and once a migration finishes, the version it replaced is simply history: it no longer shows up as a "newer version" warning on the Version check, and it doesn't block the next retirement from being announced.
+
 The Pipeline tab still shows the adapter lifecycle rail for reference, and points at Reviews with a short banner whenever a binding needs attention — but every action happens from the review card.
 
 ## The rollback demo
@@ -299,6 +301,8 @@ The prototype currently covers the main Phase 1 flow:
 * Runtime fail-closed behavior
 * A queryable audit trail (actor, action, binding, and reason for every event)
 * Adding and removing APIs at runtime, on a generic contract that works with every existing injector, scenario, and migration path immediately
+* A standalone, exportable controller (`controller/`) that works with any upstream — an API, a file feed, a database — through a small connector interface; the simulator is just one more connector
+* An HTTP / SSE / **MCP** server (`server/`) that fronts the controller for any agent environment: stable tools for agents, controls for people, separate roles, tested against the official MCP SDK and against the MCP sandbox's real backend
 * Browser-console access through `window.__core`
 
 The following are intentionally **out of scope for this prototype**:
@@ -319,122 +323,107 @@ prototype/
 ├── css/
 │   └── styles.css
 │
-├── js/
-│   ├── app.js
-│   ├── state.js
-│   │
-│   ├── core/
-│   │   ├── utils.js
-│   │   ├── detector.js
-│   │   ├── classifier.js
-│   │   ├── validator.js
-│   │   ├── adapters.js
-│   │   ├── lifecycle.js
-│   │   └── registry.js
-│   │
-│   ├── simulation/
-│   │   └── upstreams.js
-│   │
+├── controller/                  ← the exportable controller (see controller/README.md)
+│   ├── index.js                 public entry point
+│   ├── controller.js            createController(): the lifecycle engine
+│   ├── detector.js · classifier.js · validator.js · proposals.js · utils.js
+│   ├── connectors/              how it reads ANY upstream
+│   │   ├── contract.js          the connector contract
+│   │   ├── http-json.js · delimited-file.js · sql.js · remote.js
+│   │   └── helpers.js · index.js
+│   └── tests/                   54 tests, no dependencies
+│
+├── server/                      ← HTTP / SSE / MCP front (see server/README.md)
+│   ├── bin/lifecycle-server.js  the CLI
+│   ├── src/                     server, auth, config, connectors, persistence, metrics, schema, MCP, OpenAPI
+│   ├── clients/                 python/lifecycle_client.py (stdlib only) · js/client.js
+│   ├── examples/att-sandbox/    the MCP sandbox, served through the controller (demo.sh)
+│   └── tests/                   26 tests: real sockets, real upstream, the official MCP SDK client
+│
+├── simulation/
+│   └── simulation.js            fake upstreams, clock, drift injectors, scenarios — as a connector
+│
+├── js/                          the browser demo
+│   ├── app.js                   composition root
+│   ├── ctx.js                   the one controller, one simulation, one UI state
 │   └── ui/
 │       ├── dom.js
 │       ├── render.js
 │       └── events.js
 │
-└── data/
-    ├── contracts.js
-    ├── bindings.js
-    └── scenarios.js
+├── data/
+│   ├── contracts.js
+│   ├── bindings.js
+│   └── scenarios.js
+│
+└── tests/ui/                    browser-level regression suites (need jsdom: npm install)
 ```
 
 ### What each part does
 
-**`app.js`**
-Starts the prototype, wires the different layers together, and exposes `window.__core` for console access.
+**`controller/`**
+The lifecycle controller itself, with no DOM, no simulator, and no module-level state. It reads upstreams only through connectors, takes time from an injectable clock, and tells the outside world about things (a review opened, an adapter created) through events rather than reaching into anyone's state. A test fails if any file in this folder imports something from outside it.
 
-**`state.js`**
-Owns the prototype's mutable state and logging.
+**`server/`**
+Fronts one controller over HTTP so any agent environment can use it: an MCP endpoint and REST for agents, REST and server-sent events for people, with the two roles kept structurally apart. It depends on the controller and nothing else in this repository.
 
-**`core/`**
-Contains the actual lifecycle and drift logic.
+**`simulation/simulation.js`**
+Everything that exists only for the browser demo: the fake upstreams and the simulated clock, the drift injectors and queue, the scripted scenarios, and canary-fault injection. It is built entirely on the controller's public interface, so the controller cannot tell it from a real upstream.
 
-* `utils.js` — shared helper functions
-* `detector.js` — detects changes between upstream data and the stored baseline
-* `classifier.js` — determines whether a change is compatible, requires review, is breaking, or is unknown
-* `validator.js` — applies mappings and checks the result against the canonical contract
-* `adapters.js` — creates adapters and captures baselines
-* `lifecycle.js` — handles batches, reviews (both the mapping kind and the guided migration kind), promotion, retirement, rollback, runtime calls, and the drift queue (both scenario steps and manual injections land through the same mechanism)
-* `registry.js` — adds or removes an API at runtime, giving a new one a generic contract and upstream shape so nothing else in the prototype needs to know it wasn't hand-authored
-
-**`simulation/upstreams.js`**
-Contains the fake upstream systems and the controls used to inject drift, including the generic shape a newly added API starts with and the version-migration mechanics (sunset, overnight cutover) written to work against whatever version a binding currently has, not a hardcoded version string.
-
-**`ui/`**
-Handles the browser interface, including both side panels, the tabbed main area, and the audit trail's search and filters.
-
-* `render.js` — turns application state into HTML
-* `events.js` — handles user interactions
-* `dom.js` — small DOM helpers
+**`js/`**
+The browser app. `ctx.js` creates the one controller, one simulation, and one UI state object; `app.js` builds the three starting bindings and exposes `window.__core`; `ui/render.js` turns state into HTML and `ui/events.js` handles interactions.
 
 **`data/`**
-Defines the canonical contracts, the bindings between tools and simulated upstreams, and the preselected scenarios.
+The canonical contracts, the bindings between tools and simulated upstreams, and the preselected scenarios.
 
 ## Architecture
 
-The prototype intentionally keeps the UI separate from the actual drift logic.
-
-At a high level:
-
 ```text
-                  ┌─────────────────────┐
-                  │       Browser       │
-                  │     UI / Events     │
-                  └──────────┬──────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │       Core          │
-                  │                     │
-                  │ Detect → Classify   │
-                  │   → Absorb/Review   │
-                  │   → Validate        │
-                  │   → Lifecycle       │
-                  └──────────┬──────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │    Simulation       │
-                  │  Fake Upstreams     │
-                  └─────────────────────┘
+   agents ──MCP / REST──┐                      ┌──── browser demo (js/ui)
+                        ▼                      ▼
+                 ┌─────────────┐        ┌─────────────┐
+   people ──────▶│   server/   │        │ simulation/ │
+   (admin token) └──────┬──────┘        └──────┬──────┘
+                        │ public API           │ public API
+                        ▼                      ▼
+                 ┌────────────────────────────────────┐
+                 │            controller/             │
+                 │ detect → classify → absorb/review  │
+                 │            → migrate               │
+                 └──────────────────┬─────────────────┘
+                                    │ connector contract
+        ┌───────────┬───────────────┼───────────┬──────────────┐
+        ▼           ▼               ▼           ▼              ▼
+    HTTP/JSON    CSV/files         SQL        remote        your own
+                                             (any language)
 ```
 
-The core logic does not directly manipulate the DOM.
-
-In particular, `detector.js`, `classifier.js`, and `validator.js` are plain functions. They take data in and return results.
-
-The UI layer is responsible for displaying those results.
-
-This separation keeps the prototype easy to reason about and makes the core behavior possible to exercise without going through the UI.
+Ownership is explicit: the controller owns drift, adapters, reviews, and the audit trail; the simulation owns what the fake upstreams hold and what day it is; the UI owns what is selected and what is open. None of them reaches into another's state.
 
 ## Dependency flow
 
-The dependency structure is intentionally simple:
-
 ```text
-data
-  ↓
-state
-  ↓
-core / simulation
-  ↓
-app
-  ↓
-ui
+controller/        depends on nothing
+   ↑
+server/            depends on controller/ only
+simulation/        depends on controller/'s public interface (and data/scenarios.js)
+   ↑
+js/ctx.js          creates one of each
+   ↑
+js/ui, js/app.js   render and drive
 ```
 
-`core/` and `simulation/` work through `state.js` rather than directly manipulating the browser.
+Only `js/ui` touches `document`. Delete `simulation/`, `js/`, `data/` and the controller and server still work against any real upstream.
 
-Only the UI layer interacts with `document`.
+## Using it with a real system
 
-`app.js` acts as the composition root: it is the one place that brings the different pieces together and starts the application.
+The controller runs anywhere JavaScript does. To put it in front of a real upstream you provide a connector — or use one of the four included — and a binding that names it. To use it from an agent environment, run the server (`server/README.md`): point an MCP client at `/mcp`, or call the REST API from any language. `server/examples/att-sandbox/` shows it in front of the MCP sandbox's real backend.
 
+## Tests
 
+```bash
+npm install          # only needed for the browser-level suites (jsdom)
+npm test             # controller, server, then the UI suites
+npm run test:controller   # no dependencies at all
+npm run test:server       # real sockets; the official-MCP-client test needs `npm install` in server/
+```

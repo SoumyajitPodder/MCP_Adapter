@@ -1,0 +1,14 @@
+{
+  "name": "lifecycle-controller-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:controller && npm run test:server && npm run test:ui",
+    "test:controller": "node --no-warnings --test controller/tests/*.test.mjs",
+    "test:server": "node --no-warnings --test server/tests/*.test.mjs",
+    "test:ui": "node tests/ui/run.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.1"
+  }
+}

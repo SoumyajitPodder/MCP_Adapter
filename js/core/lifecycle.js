@@ -170,11 +170,17 @@ export function injectCanaryFault(b, a) {
   log(b, 'SYSTEM', `simulated: injected a correctness bug into ${versionLabel(b, a)} (canary) — will surface on the next run`, 'sim', { actor: 'simulator', action: 'SIMULATION' });
 }
 
-// Upstream versions nobody has an active (tested/canary/primary) adapter
-// for yet — surfaced in the version-check stage so a new release doesn't
-// go unnoticed.
+// Upstream versions that are genuinely waiting for an adapter: nothing
+// active (tested/canary/primary) points at them, and they haven't already
+// been superseded. The second condition matters — once a migration
+// succeeds, the old version ends up with no active adapter too (only a
+// deprecated or retired one), and reporting that as "a newer version was
+// discovered" would put a false warning on a binding that just migrated
+// perfectly. A version whose only history is a rolled-back attempt is
+// still waiting, on purpose: that's what makes "try again" possible.
 export function untargeted(b) {
-  return Object.keys(b.upstream.versions).filter(v => !b.adapters.some(x => x.upstreamVersion === v && ['tested', 'canary', 'primary'].includes(x.state)));
+  return Object.keys(b.upstream.versions).filter(v =>
+    !b.adapters.some(x => x.upstreamVersion === v && ['tested', 'canary', 'primary', 'deprecated', 'retired'].includes(x.state)));
 }
 
 // The six-stage sanity pipeline described in the LLD:

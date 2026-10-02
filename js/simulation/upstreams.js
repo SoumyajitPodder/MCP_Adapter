@@ -47,6 +47,15 @@ export const SHAPES = {
   }
 };
 
+// Is a retirement already pending for the version currently serving
+// traffic? A sunset announced for a version that has since been replaced
+// is history, not a reason to refuse the next one — without this, a
+// binding could only ever be migrated once.
+export function retirementPending(b) {
+  const p = primary(b);
+  return b.upstream.sunsetDay != null && !!p && b.upstream.sunsetVersion === p.upstreamVersion;
+}
+
 // A plain default shape for a newly added API, in whichever style (REST or
 // FILE) it was added as. Every existing drift injector assumes four
 // canonical fields (an id, a status enum, a secondary identifier, and a
@@ -232,7 +241,7 @@ export const INJ = [
   { id: 'sunset', label: 'Announce current version sunset in 6 days, release the next version', kinds: ['REST'], custom: true,
     customLog: 'upstream announced a sunset (6 days) and released the next version',
     apply: (b) => {
-      if (b.upstream.sunsetDay != null) return;
+      if (retirementPending(b)) return;
       const cur = primary(b).upstreamVersion, next = nextVersionName(cur);
       if (b.upstream.versions[next]) return;
       const nextShape = (SHAPES[b.tool] && SHAPES[b.tool][next]) ? clone(SHAPES[b.tool][next]) : deriveNextShape(b.upstream.versions[cur]);
@@ -248,7 +257,7 @@ export const INJ = [
   { id: 'version_bump', label: 'API endpoint changed overnight (current version gone, no warning)', kinds: ['REST'], custom: true,
     customLog: 'upstream cut over to a new API version overnight — the current version is gone effective immediately, no warning header was ever shown',
     apply: (b) => {
-      if (b.upstream.sunsetDay != null) return;
+      if (retirementPending(b)) return;
       const cur = primary(b).upstreamVersion, next = nextVersionName(cur);
       if (b.upstream.versions[next]) return;
       const nextShape = (SHAPES[b.tool] && SHAPES[b.tool][next]) ? clone(SHAPES[b.tool][next]) : deriveNextShape(b.upstream.versions[cur]);
