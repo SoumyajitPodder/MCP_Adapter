@@ -4,7 +4,7 @@
 agent_id: order-status-agent
 harness: reference
 provider: nvidia
-model: nvidia/nemotron-3-super-120b-a12b
+model: openai/gpt-oss-20b
 system_prompt: >-
   You are the order status agent for a telecom provider's customer support team.
   Answer customer questions about orders and services by looking them up with the tools

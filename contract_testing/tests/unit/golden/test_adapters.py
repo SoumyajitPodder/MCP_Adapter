@@ -228,7 +228,7 @@ def test_nvidia_wiring_follows_the_agent_config_and_judge_provider() -> None:
     assert isinstance(composition.golden_harness(keyed, reference, clients), NvidiaAgent)
     judge = composition.golden_judge(keyed, clients)
     assert isinstance(judge, NvidiaJudge)
-    assert judge.model == "moonshotai/kimi-k2.6"
+    assert judge.model == "moonshotai/kimi-k3"
     pinned = keyed.model_copy(update={"judge_model": "other/judge"})
     assert composition.golden_judge(pinned, clients).model == "other/judge"  # type: ignore[union-attr]
 

@@ -145,7 +145,7 @@ _REPO_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 _DEFAULT_JUDGE_MODELS: dict[str, str] = {
     "gemini": "gemini-3.8-flash",
-    "nvidia": "moonshotai/kimi-k2.6",
+    "nvidia": "moonshotai/kimi-k3",
 }
 
 
@@ -198,7 +198,7 @@ class GoldenSettings(BaseSettings):
         default=None,
         min_length=1,
         description="Pinned judge model. Default per provider: gemini-3.8-flash for Gemini, "
-        "moonshotai/kimi-k2.6 for NVIDIA.",
+        "moonshotai/kimi-k3 for NVIDIA.",
     )
 
     @property

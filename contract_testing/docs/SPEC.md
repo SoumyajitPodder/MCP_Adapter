@@ -266,7 +266,7 @@ All config comes from `ADAPTER_*` environment variables and is validated at star
 | `ADAPTER_GOLDEN_NVIDIA_API_KEY` | `SecretStr \| None` | `None` | no | NVIDIA API catalog key for the agent and judge. Secret. |
 | `ADAPTER_GOLDEN_NVIDIA_BASE_URL` | `str` | `'https://integrate.api.nvidia.com/v1'` | no | NVIDIA OpenAI-compatible API base URL. |
 | `ADAPTER_GOLDEN_JUDGE_PROVIDER` | `Literal['gemini', 'nvidia']` | `'nvidia'` | no | Model API of the answer judge (D-095). |
-| `ADAPTER_GOLDEN_JUDGE_MODEL` | `str \| None` | `None` | no | Pinned judge model. Default per provider: gemini-3.8-flash for Gemini, moonshotai/kimi-k2.6 for NVIDIA. |
+| `ADAPTER_GOLDEN_JUDGE_MODEL` | `str \| None` | `None` | no | Pinned judge model. Default per provider: gemini-3.8-flash for Gemini, moonshotai/kimi-k3 for NVIDIA. |
 <!-- END GENERATED -->
 
 ## 5. Contract testing in CI
@@ -352,7 +352,7 @@ See the gate bullet above and §11 (`contract check`).
   1. **calls:** tool, version, arguments (JSON equality);
   2. **sequence:** forbidden tools (even denied attempts), order, `exact_calls`;
   3. **state:** writes and per-tool calls at the stub backend;
-  4. **answer:** the judge (`ADAPTER_GOLDEN_JUDGE_PROVIDER`, default `nvidia`; `ADAPTER_GOLDEN_JUDGE_MODEL`, default `moonshotai/kimi-k2.6` or `gemini-3.8-flash`), a different model from the agent. `GeminiJudge` output is constrained to the verdict schema; `NvidiaJudge` gets the schema in its instructions. Either way the reply is validated strictly.
+  4. **answer:** the judge (`ADAPTER_GOLDEN_JUDGE_PROVIDER`, default `nvidia`; `ADAPTER_GOLDEN_JUDGE_MODEL`, default `moonshotai/kimi-k3` or `gemini-3.8-flash`), a different model from the agent. `GeminiJudge` output is constrained to the verdict schema; `NvidiaJudge` gets the schema in its instructions. Either way the reply is validated strictly.
      - Before any task is judged, the judge must classify every case in `tests/golden_selftest/calibration/` (`golden calibrate` runs just that); otherwise runs are `judge_uncalibrated`.
      - Without a judge, runs are `not_judged`.
      - Either way the task is `incomplete`, which never passes a gate.
