@@ -136,6 +136,7 @@ class GoldenRunner:
         harnesses = {a: self._harnesses(plan.agents[a]) for a in sorted({t.agent for t in tasks})}
         calibrated = await self._calibrate() if any(t.expect_answer for t in tasks) else None
         usage, exceeded = TokenUsage(), False
+        outage: str | None = None
         identities: dict[str, AgentIdentity] = {}
         results: list[TaskResult] = []
         for task in tasks:
@@ -148,9 +149,15 @@ class GoldenRunner:
                         _error(index, ErrorKind.BUDGET_EXCEEDED, "suite token budget spent")
                     )
                     continue
+                if outage is not None:
+                    # Later calls would fail the same way and spend quota (D-113).
+                    runs.append(_error(index, ErrorKind.MODEL_UNAVAILABLE, outage))
+                    continue
                 record, model = await self._run_once(task, config, harness, index, calibrated)
                 usage += record.usage
                 runs.append(record)
+                if record.error is ErrorKind.MODEL_UNAVAILABLE:
+                    outage = f"not run: {record.detail}"
                 identities[task.agent] = AgentIdentity(
                     agent_id=task.agent, harness=harness.kind, model=model or config.model
                 )

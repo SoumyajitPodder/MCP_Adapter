@@ -262,6 +262,7 @@ class _BrokenAgent(ScriptedAgent):
     def __init__(self, calls: Sequence[ToolCall], error: Exception | None = None) -> None:
         super().__init__(calls)
         self._error = error or RuntimeError("agent crashed")
+        self.calls = 0
 
     async def run(
         self,
@@ -272,6 +273,7 @@ class _BrokenAgent(ScriptedAgent):
         meter: UsageMeter | None = None,
     ) -> AgentRun:
         del prompt, tools, call_tool, limits, meter
+        self.calls += 1
         raise self._error
 
 
@@ -300,12 +302,19 @@ async def test_described_harness_failure_keeps_its_reason(repo: Repo) -> None:
 
 async def test_agent_model_outage_leaves_the_task_incomplete(repo: Repo) -> None:
     down = _BrokenAgent([], ModelUnavailableError("503 UNAVAILABLE"))
-    results = await run(repo, down, ["order-inflight"])
-    runs = results.tasks[0].runs
-    assert {(r.error, r.detail) for r in runs} == {
-        (ErrorKind.MODEL_UNAVAILABLE, "agent model unavailable: 503 UNAVAILABLE")
+    results = await run(repo, down, None)
+    first, *rest = [r for t in results.tasks for r in t.runs]
+    assert (first.error, first.detail) == (
+        ErrorKind.MODEL_UNAVAILABLE,
+        "agent model unavailable: 503 UNAVAILABLE",
+    )
+    # The suite stops calling the model after the first outage (D-113): the rest are not run.
+    assert rest
+    assert {(r.error, r.detail) for r in rest} == {
+        (ErrorKind.MODEL_UNAVAILABLE, "not run: agent model unavailable: 503 UNAVAILABLE")
     }
-    assert results.tasks[0].verdict is TaskVerdict.INCOMPLETE
+    assert down.calls == 1
+    assert {t.verdict for t in results.tasks} == {TaskVerdict.INCOMPLETE}
 
 
 async def test_judge_model_outage_leaves_the_task_incomplete(repo: Repo) -> None:
@@ -387,6 +396,14 @@ async def test_repeat_failure_on_unchanged_inputs_recommends_quarantine(repo: Re
     repo.put_task(read_task(prompt="Has order 1 shipped?"))  # inputs changed: no recommendation
     third = await run(repo, failing, ["order-inflight"], previous=second)
     assert third.tasks[0].quarantine_recommended is False
+
+
+async def test_errors_alone_never_recommend_quarantine(repo: Repo) -> None:
+    broken = _BrokenAgent([])
+    first = await run(repo, broken, ["order-inflight"])
+    second = await run(repo, broken, ["order-inflight"], previous=first)
+    assert second.tasks[0].verdict is TaskVerdict.FAIL  # the gate still fails closed
+    assert second.tasks[0].quarantine_recommended is False
 
 
 async def test_results_record_agent_identity_and_quarantine(repo: Repo) -> None:

@@ -27,12 +27,22 @@ def task_verdict(threshold: int, runs: Sequence[RunRecord]) -> TaskVerdict:
     return TaskVerdict.INCOMPLETE if passed + undecided >= threshold else TaskVerdict.FAIL
 
 
+def failed_a_layer(result: TaskResult) -> bool:
+    """Failed, and at least one run failed a layer check rather than erroring. Only this is
+    evidence about the agent; a task that failed through errors alone says nothing about it."""
+    return result.verdict is TaskVerdict.FAIL and any(
+        r.outcome is RunOutcome.FAIL for r in result.runs
+    )
+
+
 def quarantine_recommended(current: TaskResult, previous: TaskResult | None) -> bool:
-    """Failed twice in a row with nothing it depends on changed (§6.6). Never applied here."""
+    """Failed a layer check twice in a row with nothing it depends on changed (§6.6, D-112).
+    Failures through errors alone still fail the gate but never recommend quarantine.
+    Never applied here."""
     return (
         previous is not None
-        and current.verdict is TaskVerdict.FAIL
-        and previous.verdict is TaskVerdict.FAIL
+        and failed_a_layer(current)
+        and failed_a_layer(previous)
         and current.input_digest == previous.input_digest
     )
 

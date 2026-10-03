@@ -15,8 +15,9 @@ from pydantic import Field, JsonValue
 from adapter_verify.common.model import FrozenModel
 from adapter_verify.contract_ci.domain.contracts import CanonicalContract, ContractType
 from adapter_verify.golden.domain.lint import Document, Inputs
-from adapter_verify.golden.domain.results import RunOutcome, SuiteResults, TaskResult, TaskVerdict
+from adapter_verify.golden.domain.results import SuiteResults, TaskVerdict
 from adapter_verify.golden.domain.tasks import GoldenTask
+from adapter_verify.golden.domain.verdict import failed_a_layer
 
 
 class CanaryKind(StrEnum):
@@ -156,15 +157,8 @@ def status(
     if not passing or mutated is None:
         return CanaryStatus.BASELINE_FAILING
     results = [r for t in passing if (r := mutated.task(t)) is not None]
-    if any(_failed_a_layer(r) for r in results):
+    if any(failed_a_layer(r) for r in results):
         return CanaryStatus.CAUGHT
     if any(r.verdict is not TaskVerdict.PASS for r in results):
         return CanaryStatus.INCOMPLETE
     return CanaryStatus.MISSED
-
-
-def _failed_a_layer(result: TaskResult) -> bool:
-    """Failed, and at least one run failed a layer check rather than erroring (D-087, D-094)."""
-    return result.verdict is TaskVerdict.FAIL and any(
-        r.outcome is RunOutcome.FAIL for r in result.runs
-    )
