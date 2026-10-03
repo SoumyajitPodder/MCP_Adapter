@@ -27,8 +27,10 @@ JUDGE_INSTRUCTIONS: Final = (
     "You grade one answer given by a customer-support agent. You receive the customer's "
     "question, the tool results the agent saw, a rubric, and the agent's final answer. "
     "Decide whether the answer meets every point of the rubric and is supported by the tool "
-    "results. Return JSON only: score from 0 (fails) to 1 (fully meets), passed true exactly "
-    "when score >= 0.5, and one short reason per point that decided it."
+    "results. An answer that misses or violates any point of the rubric fails, however good "
+    "the rest is: give it a score below 0.5. Return JSON only: score from 0 (fails) to 1 "
+    "(fully meets), passed true exactly when score >= 0.5, and one short reason per point "
+    "that decided it."
 )
 
 

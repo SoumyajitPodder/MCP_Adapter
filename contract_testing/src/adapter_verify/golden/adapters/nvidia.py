@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Final, Protocol
 
 import httpx
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from adapter_kernel.errors import ERROR_SPECS, ErrorCode
 from adapter_kernel.jsontypes import JsonObject
@@ -44,6 +44,7 @@ NVIDIA_BASE_URL: Final = "https://integrate.api.nvidia.com/v1"
 _RETRY_STATUSES: Final = frozenset({429, 500, 502, 503, 504})
 _SERVER_ERROR: Final = 500
 _TOO_MANY_REQUESTS: Final = 429
+_VERDICT_ATTEMPTS: Final = 3
 _THINKING = re.compile(r"<think>.*?</think>", re.DOTALL)
 _JUDGE_SYSTEM: Final = (
     f"{JUDGE_INSTRUCTIONS} Reply with one JSON object matching this JSON Schema, and nothing "
@@ -316,6 +317,17 @@ class NvidiaJudge:
         return self._model
 
     async def grade(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict:
+        """Asks again, up to ``_VERDICT_ATTEMPTS`` times, if the reply isn't a valid verdict:
+        sampled at the model default (D-085), an occasional reply is malformed or empty.
+        Validation is as strict every time."""
+        for _ in range(_VERDICT_ATTEMPTS - 1):
+            try:
+                return await self._grade_once(rubric, evidence)
+            except InvalidVerdictError:
+                continue
+        return await self._grade_once(rubric, evidence)
+
+    async def _grade_once(self, rubric: str, evidence: AnswerEvidence) -> JudgeVerdict:
         data = await _call(
             self._models,
             {
@@ -331,7 +343,19 @@ class NvidiaJudge:
             text = _visible(_message(data).get("content")) or ""
         except HarnessFailedError as exc:
             raise JudgeUnavailableError(str(exc)) from None
-        return JudgeVerdict.model_validate_json(_json_object(text))
+        try:
+            return JudgeVerdict.model_validate_json(_json_object(text))
+        except ValidationError as exc:
+            # Field locations and error types only: the reply text could echo the evidence.
+            problems = ", ".join(
+                f"{'.'.join(str(p) for p in e['loc']) or 'reply'}: {e['type']}"
+                for e in exc.errors(include_input=False, include_url=False)
+            )
+            raise InvalidVerdictError(f"invalid verdict ({problems})") from None
+
+
+class InvalidVerdictError(JudgeUnavailableError):
+    """The judge replied, but not with a valid verdict."""
 
 
 def _json_object(text: str) -> str:

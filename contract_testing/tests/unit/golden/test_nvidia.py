@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
 from adapter_kernel.errors import AdapterError, ErrorCode
 from adapter_kernel.meta import ResponseMeta
@@ -17,6 +17,7 @@ from adapter_verify.golden.adapters.nvidia import (
     ChatApiError,
     ChatTransportError,
     HttpxChatCompletions,
+    InvalidVerdictError,
     NvidiaAgent,
     NvidiaJudge,
 )
@@ -189,10 +190,27 @@ async def test_judge_parses_the_verdict(text: str) -> None:
     assert json.loads(user["content"])["rubric"] == "rubric"
 
 
-@pytest.mark.parametrize("text", ["not json", '{"score": 2, "passed": true, "reasons": ["x"]}', ""])
-async def test_judge_rejects_invalid_output(text: str) -> None:
-    with pytest.raises(ValidationError):
-        await NvidiaJudge(FakeCompletions([_reply(text)]), model="j").grade("r", EVIDENCE)
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        ("not json", "reply: json_invalid"),
+        ('{"score": 2, "passed": true, "reasons": ["x"]}', "score: less_than_equal"),
+        ("", "reply: json_invalid"),
+    ],
+)
+async def test_judge_rejects_invalid_output_after_three_tries(text: str, problem: str) -> None:
+    models = FakeCompletions([_reply(text)] * 3)
+    with pytest.raises(InvalidVerdictError, match=rf"^invalid verdict \({problem}\)$"):
+        await NvidiaJudge(models, model="j").grade("r", EVIDENCE)
+    assert len(models.bodies) == 3
+
+
+async def test_judge_asks_again_after_invalid_replies() -> None:
+    good = '{"score": 0.9, "passed": true, "reasons": ["ok"]}'
+    models = FakeCompletions([_reply("not json"), _reply(""), _reply(good)])
+    verdict = await NvidiaJudge(models, model="j").grade("r", EVIDENCE)
+    assert verdict.passed is True
+    assert len(models.bodies) == 3
 
 
 @pytest.mark.parametrize(
