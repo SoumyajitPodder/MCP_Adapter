@@ -7,6 +7,46 @@ Reverse-chronological. One section per working session. Never rewrite history. I
 
 ---
 
+## 2026-09-30 — Session 24: pending decisions triaged
+
+The owner delegated the routine pending decisions: "if they're simple and straightforward decisions you can make, go ahead". Each one approved below is already implemented and tested, follows the brief or a fail-closed default, and can be reversed without migrating data. Their status is now **`approved (delegated)`**; the original rows are unchanged, as this log is append-only.
+
+**Approved (delegated):** D-008–D-010, D-012–D-014 (M0 tooling); D-016–D-018, D-020–D-022, D-024, D-026–D-031, D-033 (M1); D-041–D-045, D-047–D-049 (M2); D-054–D-058 (M4); D-060–D-064, D-066–D-070 (M3); D-075–D-082, D-085–D-088, D-090, D-092, D-096 (M5); D-098–D-111 (Session 23).
+
+Two open questions decided the same way:
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-112 | Resolves R-033. The gate still counts a task that failed only through errors as `fail` (fail closed), but quarantine is recommended only when both the current and the previous result failed a layer check. `failed_a_layer` lives in `verdict.py`, shared with canaries (D-098). | Two broken harness runs recommended quarantining a healthy task. Rejected: making errors undecided at the gate, which would let a broken harness pass promotion as `incomplete`. | approved (delegated) |
+| D-113 | Resolves the Session 21 open question. After the first `model_unavailable` run, the suite stops calling models: every later run is recorded as `model_unavailable` with detail `not run: <first outage>`, so those tasks end `incomplete` (exit 2). | Session 21 spent about 10 minutes in retries, and the NVIDIA trial tier has about 1,000 credits. Rejected: retrying in the runner (D-094). | approved (delegated) |
+
+**Left for the owner** (choices about deployment, operations or the organisation):
+
+| Item | Question | Recommendation |
+| --- | --- | --- |
+| R-029 / D-065 | With several adapter instances, should lease and sweep times come from the database's `now()` or stay on each instance's clock with NTP and a lease much longer than the skew? | DB `now()` for comparisons in the Postgres adapter, keeping the injected clock for tests |
+| R-034 / D-046 | Must every unauthenticated denial be its own audit record (§9), or may pre-auth denials be events plus a counter, with the audit trail recording only a rate summary? | Events plus a counter, with one audit record per agent-less burst |
+| D-089 / M5b-Q4 | Who sets up the network-isolated CI runner and the NVIDIA key secret, and when? | The owner, before the golden job is turned on |
+| D-071 | Which alert channel do owner alerts go to? | Whatever the team's on-call uses; the structured log stays as the fallback |
+| D-023 | The MCP `_meta` key prefix (`adapter/` today) | Agree it with Romik, since his gateway reads the same keys |
+
+**Left for the owner and Romik:** D-011 and D-053 (kernel contents), D-091 and R-035 (delivery status consistency in `ToolResult`), R-030 (`x-sensitivity` in the contract format), R-031 (one classifier), R-032 (kernel adoption, `CONTRACT_SUNSET`, lifecycle states, Python 3.12 vs 3.14).
+
+Not decided here: R-035's audit-ordering item (sweep and resolve audit after the state change), which needs a design for writing the audit row in the same transaction.
+
+### First complete live run (2026-10-02)
+
+The owner added an NVIDIA API catalog key. The owner had asked for `meta/llama-3.1-8b-instruct` from the NIM quickstart, but that is a self-hosted NIM: the hosted catalog doesn't serve it, and this machine (Apple M4, no Docker) can't run a NIM container. `openai/gpt-oss-20b` was used instead, after one probe request confirmed it makes tool calls. The default judge, `moonshotai/kimi-k2.6`, answers 404 for this account ("Function … Not found for account"); `moonshotai/kimi-k3` works.
+
+Results, at `5426d0f` plus the changes below: `golden calibrate` passed all 7 cases. `golden run --all` passed 5/5 tasks, with 14 of 15 runs passing; the 15th was a judge reply that was empty twice in a row, which led to D-114. The run used 10,971 input and 1,761 output tokens in about 6.5 minutes. `golden canaries` caught all 4 (enum swap, misleading description, dropped field, timezone shift), each through a layer failure (D-098).
+
+| ID | Decision | Why / rejected | Status |
+| --- | --- | --- | --- |
+| D-114 | The judge instructions now say that an answer missing or violating any rubric point fails, with a score below 0.5. `NvidiaJudge` asks up to 3 times when a reply is not a valid verdict; the error names the failing fields and error types only, never the reply text. | Calibration caught Kimi K3 scoring an answer 0.5 and passing it while saying in its own reasons that the answer broke the rubric. About 1 in 15 Kimi K3 replies was empty or malformed, and calibration repeats on every `golden run`, so a single bad reply left the judge uncalibrated and the run `incomplete`. Validation stays strict (D-096). | approved by owner |
+| D-115 | The reference agent runs `openai/gpt-oss-20b` (was `nvidia/nemotron-3-super-120b-a12b`), and the default NVIDIA judge is `moonshotai/kimi-k3` (was `kimi-k2.6`). The two are still different model families. | The owner's choice after the live run. gpt-oss-20b passed every task and canary and costs less per call; kimi-k2.6 isn't available to this account. | approved by owner |
+
+---
+
 ## 2026-09-30 — Session 23: code review fixes
 
 A read-only review of §5–9 and the kernel (five reviewers, one per area) found the issues below. The ones fixed here change behavior, so each is a decision awaiting the owner. Verified: unit tests (632 pass, 96.7% coverage), ruff, mypy, import-linter, `policy lint`, `golden lint`, `gen_spec --check`. Not verified: the Postgres integration tests (no Docker on this machine; CI runs them) and the review label against the live GitHub API.
